@@ -86,17 +86,19 @@ export class Viva {
     return { orderCode, checkoutUrl: `${checkoutHost}/web/checkout?ref=${orderCode}` };
   }
 
-  // Κατάσταση order (Basic merchantId:apiKey) → { stateId, paid }
+  // Κατάσταση order — legacy endpoint /api/orders/{code}, Basic merchantId:apiKey.
+  // Επιστρέφει "StateId" (κεφαλαίο)· 3 = Paid.
   async orderState(orderCode: string): Promise<{ stateId: number | null; paid: boolean }> {
-    const checkoutHost = this.cfg.env === "prod"
-      ? "https://api.vivapayments.com" : "https://demo-api.vivapayments.com";
+    const host = this.cfg.env === "prod"
+      ? "https://www.vivapayments.com" : "https://demo.vivapayments.com";
     const basic = btoa(`${this.cfg.merchantId}:${this.cfg.apiKey}`);
-    const res = await fetch(`${checkoutHost}/checkout/v2/orders/${orderCode}`, {
+    const res = await fetch(`${host}/api/orders/${orderCode}`, {
       headers: { Authorization: `Basic ${basic}` },
     });
     if (!res.ok) throw new Error(`Viva orderState ${res.status}: ${await res.text()}`);
     const j = await res.json();
-    const stateId = typeof j.stateId === "number" ? j.stateId : null;
+    const stateId = (typeof j.StateId === "number" ? j.StateId
+      : typeof j.stateId === "number" ? j.stateId : null);
     return { stateId, paid: stateId === VIVA_PAID_STATE };
   }
 
