@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "seed": "tsx src/seed.ts",
-    "build": "tsc -p tsconfig.json",
-    "start": "node dist/server.js"
+    "build": "tsc -p tsconfig.json --noEmit",
+    "start": "tsx src/server.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

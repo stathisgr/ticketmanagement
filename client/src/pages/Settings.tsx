@@ -202,7 +202,7 @@ function BackupSection() {
   useEffect(() => { load(); }, []);
 
   function saveBlob(file: string, bytes: Uint8Array) {
-    const blob = new Blob([bytes], { type: 'application/octet-stream' });
+    const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = file; a.click();
     URL.revokeObjectURL(url);
