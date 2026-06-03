@@ -25,7 +25,7 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 .type.active { border-color: var(--brand); background: #eef5fb; }
 .screenrow { text-align: center; background: #e2e8f0; border-radius: 6px; padding: 4px;
   color: var(--muted); font-size: 12px; letter-spacing: .3em; margin: 14px 0; }
-.seatmap { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.seatmap { display: flex; flex-direction: column; gap: 6px; align-items: center; overflow-x: auto; padding-bottom: 6px; }
 .seatrow { display: flex; gap: 6px; align-items: center; }
 .rowlabel { width: 22px; text-align: center; color: var(--muted); font-size: 12px; }
 .seat { width: 30px; height: 30px; border-radius: 6px; border: 0; font-size: 11px; cursor: pointer;

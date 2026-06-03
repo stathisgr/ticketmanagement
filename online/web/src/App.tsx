@@ -63,11 +63,14 @@ export default function App() {
   }
 
   function toggleSeat(seat: SeatAvail) {
-    if (!seat.available || activeType == null) return;
+    if (!seat.available) return;
+    const tType = activeType ?? types[0]?.id ?? null;
+    if (tType == null) return;
+    if (activeType == null) setActiveType(tType);
     setPicked((p) => {
       const n = { ...p };
       if (n[seat.seat_id]) delete n[seat.seat_id];
-      else n[seat.seat_id] = activeType;
+      else n[seat.seat_id] = tType;
       return n;
     });
   }
