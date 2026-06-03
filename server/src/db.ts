@@ -57,6 +57,7 @@ export function migrate(): void {
     'ALTER TABLE tickets ADD COLUMN cancelled_at TEXT',
     'ALTER TABLE tickets ADD COLUMN cancelled_by INTEGER',
     'ALTER TABLE tickets ADD COLUMN cancel_reason TEXT',
+    'ALTER TABLE tickets ADD COLUMN cancel_approver TEXT',
   ];
   for (const stmt of preMigrations) {
     try { db.exec(stmt); } catch { /* ήδη εφαρμοσμένο ή ο πίνακας δεν υπάρχει */ }

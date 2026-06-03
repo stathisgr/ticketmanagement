@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, getStation, type PaymentMethod, type Seat, type Show, type ShowTicketType, type Customer } from '../api';
 import CustomerPicker from '../components/CustomerPicker';
+import DateField from '../components/DateField';
 import { printTickets } from '../components/printTicket';
 import VivaPay from '../components/VivaPay';
 
@@ -128,8 +129,7 @@ export default function SeatPOS() {
       {/* Αριστερά: ημερομηνία + λίστα θεαμάτων */}
       <div className="w-72 bg-white border-r p-3 shrink-0 overflow-auto">
         <label className="text-sm block mb-1">Ημερομηνία
-          <input type="date" value={date} onChange={(e) => { setDate(e.target.value); loadShows(e.target.value); }}
-            className="block border rounded px-2 py-1 w-full" /></label>
+          <span className="block"><DateField value={date} onChange={(v) => { setDate(v); loadShows(v); }} /></span></label>
         <div className="text-base font-semibold capitalize mb-3 text-slate-700">{formatGreekDate(date)}</div>
         <h3 className="font-semibold text-gray-700 mb-1">Θεάματα</h3>
         {shows.length === 0 && <div className="text-gray-400 text-sm">Κανένα θέαμα αυτή τη μέρα.</div>}

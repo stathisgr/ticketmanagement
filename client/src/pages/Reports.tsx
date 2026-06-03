@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api';
+import { api, dmy } from '../api';
+import DateField from '../components/DateField';
 
 const p2 = (n: number) => String(n).padStart(2, '0');
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`; };
@@ -68,8 +69,8 @@ export default function Reports() {
     <div className="p-4 max-w-5xl mx-auto">
       <div className="flex items-end gap-2 mb-4 flex-wrap">
         <h2 className="text-xl font-bold mr-2">Αναφορές</h2>
-        <label className="text-sm">Από<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="block border rounded px-2 py-1" /></label>
-        <label className="text-sm">Έως<input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="block border rounded px-2 py-1" /></label>
+        <label className="text-sm">Από<span className="block"><DateField value={from} onChange={setFrom} /></span></label>
+        <label className="text-sm">Έως<span className="block"><DateField value={to} onChange={setTo} /></span></label>
         <button onClick={load} className="bg-slate-800 text-white px-4 py-1.5 rounded">Εμφάνιση</button>
       </div>
 
@@ -113,7 +114,7 @@ export default function Reports() {
                     <div key={d.day} className="flex flex-col items-center justify-end shrink-0" style={{ width: 44 }} title={`${d.day}: ${d.gross.toFixed(2)} €`}>
                       <div className="text-[9px] text-gray-600 mb-0.5">{d.gross > 0 ? d.gross.toFixed(0) : ''}</div>
                       <div className="bg-slate-600 rounded-t hover:bg-slate-800" style={{ height: h, width: 28 }} />
-                      <div className="text-[9px] text-gray-500 mt-1">{d.day.slice(5)}</div>
+                      <div className="text-[9px] text-gray-500 mt-1">{dmy(d.day).slice(0, 5)}</div>
                     </div>
                   );
                 })}
@@ -165,7 +166,7 @@ export default function Reports() {
             onCsv={() => csv('ana_ekdilosi', ['Ημ. εκδήλωσης', 'Εκδήλωση', 'Εκδοθέντα', 'Ακυρωθέντα', 'Χωρητικότητα', 'Αδιάθετα', 'Καθαρή αξία', 'ΦΠΑ', 'Σύνολο'],
               fiscal.byEvent.map((r) => [r.event_date, r.show_title, r.issued, r.cancelled, r.capacity ?? '', r.unsold ?? '', r.net.toFixed(2), r.vat.toFixed(2), r.gross.toFixed(2)]))}
             head={['Ημ. εκδήλωσης', 'Εκδήλωση', 'Εκδοθ.', 'Ακυρ.', 'Χωρητ.', 'Αδιάθ.', 'ΦΠΑ', 'Σύνολο']}
-            rows={fiscal.byEvent.map((r) => [r.event_date, r.show_title, String(r.issued), String(r.cancelled),
+            rows={fiscal.byEvent.map((r) => [dmy(r.event_date), r.show_title, String(r.issued), String(r.cancelled),
               r.capacity != null ? String(r.capacity) : '—', r.unsold != null ? String(r.unsold) : '—',
               `${r.vat.toFixed(2)} €`, `${r.gross.toFixed(2)} €`])}
           />

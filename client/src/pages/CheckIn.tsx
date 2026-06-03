@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api } from '../api';
+import { api, dmy } from '../api';
 
 interface Result { status: 'ok' | 'already' | 'not_found' | 'wrong_time'; title?: string; seat?: string; show?: string; show_date?: string; serial?: string; at?: string; code?: string; message?: string; }
 interface Stats { issued: number; entered: number; date: string; }
@@ -79,7 +79,7 @@ export default function CheckIn() {
             </div>
           ) : res.status !== 'not_found' ? (
             <div className="mt-1 text-lg">
-              {res.title}{res.seat ? ` · Θέση ${res.seat}` : ''}{res.show ? ` · ${res.show}` : ''}{res.show_date ? ` (${res.show_date})` : ''}
+              {res.title}{res.seat ? ` · Θέση ${res.seat}` : ''}{res.show ? ` · ${res.show}` : ''}{res.show_date ? ` (${dmy(res.show_date)})` : ''}
               <div className="text-sm opacity-90">Νο {res.serial}{res.status === 'already' && res.at ? ` — είχε μπει: ${res.at}` : ''}</div>
             </div>
           ) : (

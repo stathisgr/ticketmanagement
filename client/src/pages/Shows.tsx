@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, type Hall, type Show, type ShowTicketType, type TicketType } from '../api';
+import { api, dmy, type Hall, type Show, type ShowTicketType, type TicketType } from '../api';
+import DateField from '../components/DateField';
 
 interface Slot { start_time: string; end_time: string; }
 interface Range { valid_from: string; valid_to: string; }
@@ -174,7 +175,7 @@ export default function Shows() {
           {filtered.map((s: any) => (
             <tr key={s.id} className={`border-t ${s.enabled ? '' : 'opacity-50'}`}>
               <td className="p-2">{(s.start_time ?? '').slice(0, 5)}{s.end_time ? '–' + s.end_time.slice(0, 5) : ''}</td>
-              <td className="p-2">{(s.valid_from ?? '').slice(0, 10)} → {(s.valid_to ?? '').slice(0, 10)}</td>
+              <td className="p-2">{dmy(s.valid_from)} → {dmy(s.valid_to)}</td>
               <td className="p-2 font-medium">{s.title}</td>
               <td className="p-2">{s.seating_mode === 'general' ? <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">Event χωρίς θέσεις</span> : s.hall_name}</td>
               <td className="p-2 text-center">
@@ -246,8 +247,8 @@ export default function Shows() {
             <h4 className="font-semibold mt-4 mb-1">Διαστήματα ημερομηνιών</h4>
             {draft.ranges.map((r, i) => (
               <div key={i} className="flex items-center gap-2 mb-1 text-sm">
-                <span>Από</span><input type="date" className="border rounded px-2 py-1" value={r.valid_from} onChange={(e) => setDraft({ ...draft, ranges: draft.ranges.map((x, j) => j === i ? { ...x, valid_from: e.target.value } : x) })} />
-                <span>έως</span><input type="date" className="border rounded px-2 py-1" value={r.valid_to} onChange={(e) => setDraft({ ...draft, ranges: draft.ranges.map((x, j) => j === i ? { ...x, valid_to: e.target.value } : x) })} />
+                <span>Από</span><DateField value={r.valid_from} onChange={(v) => setDraft({ ...draft, ranges: draft.ranges.map((x, j) => j === i ? { ...x, valid_from: v } : x) })} />
+                <span>έως</span><DateField value={r.valid_to} onChange={(v) => setDraft({ ...draft, ranges: draft.ranges.map((x, j) => j === i ? { ...x, valid_to: v } : x) })} />
                 {draft.ranges.length > 1 && <button onClick={() => setDraft({ ...draft, ranges: draft.ranges.filter((_, j) => j !== i) })} className="text-red-500 px-1">✕</button>}
               </div>
             ))}

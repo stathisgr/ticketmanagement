@@ -60,6 +60,22 @@ export interface FiscalConfig {
   pos_provider?: 'none' | 'viva'; pos_config?: string;
 }
 
+/** Μορφή ημερομηνίας ΗΗ/ΜΜ/ΕΕΕΕ από ISO 'YYYY-MM-DD' (ή ISO datetime). */
+export function dmy(iso?: string | null): string {
+  if (!iso) return '';
+  const m = String(iso).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : String(iso);
+}
+/** ISO 'YYYY-MM-DD' → 'ΗΗ/ΜΜ/ΕΕΕΕ' (alias) · και αντίστροφα. */
+export function isoToDmy(iso?: string | null): string { return dmy(iso); }
+export function dmyToIso(s: string): string | null {
+  const m = (s || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  const d = +m[1], mo = +m[2], y = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
 /** Όνομα σταθμού (ταμείου) — αποθηκεύεται τοπικά στον browser. */
 export function getStation(): string { try { return localStorage.getItem('tm_station') || ''; } catch { return ''; } }
 export function setStation(name: string) { try { localStorage.setItem('tm_station', name); } catch { /* ignore */ } }

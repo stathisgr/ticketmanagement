@@ -159,7 +159,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   checked_in_by   INTEGER REFERENCES users(id),
   cancelled_at    TEXT,           -- ακύρωση εισιτηρίου (audit trail)
   cancelled_by    INTEGER REFERENCES users(id),
-  cancel_reason   TEXT
+  cancel_reason   TEXT,
+  cancel_approver TEXT             -- Ονοματεπώνυμο Εγκρίνοντος (διορθώσεις περασμένων εκδηλώσεων)
 );
 
 -- Ταμειακές κινήσεις (ταμείο)

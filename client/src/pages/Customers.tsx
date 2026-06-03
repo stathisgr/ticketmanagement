@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, type Customer } from '../api';
+import { api, dmy, type Customer } from '../api';
 
 const blank = (): Partial<Customer> => ({ full_name: '', marketing_opt_in: 0 });
 
@@ -113,9 +113,9 @@ export default function Customers() {
                     <tbody>
                       {custTickets.map((t) => (
                         <tr key={t.id} className="border-t">
-                          <td className="p-1.5">{(t.datetime ?? '').replace('T', ' ').slice(0, 16)}</td>
+                          <td className="p-1.5">{dmy(t.datetime)} {(t.datetime ?? '').replace('T', ' ').slice(11, 16)}</td>
                           <td className="p-1.5 font-mono">{t.serial} · {t.title}</td>
-                          <td className="p-1.5 text-gray-600">{t.seat ?? ''}{t.show_title ? ` · ${t.show_title}` : ''}{t.show_date ? ` (${t.show_date})` : ''}</td>
+                          <td className="p-1.5 text-gray-600">{t.seat ?? ''}{t.show_title ? ` · ${t.show_title}` : ''}{t.show_date ? ` (${dmy(t.show_date)})` : ''}</td>
                           <td className="p-1.5 text-right">{Number(t.line_total ?? 0).toFixed(2)} €</td>
                           <td className="p-1.5 text-center">{t.checked_in_at ? '✓' : '—'}</td>
                         </tr>

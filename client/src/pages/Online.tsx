@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, type Show } from '../api';
+import { api, dmy, type Show } from '../api';
+import DateField from '../components/DateField';
 
 interface OnlineConfig { supabase_url: string; sync_minutes_before: number; enabled: boolean; has_key: boolean; }
 interface Publication {
@@ -88,7 +89,7 @@ export default function Online() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="block">
             <span className="text-sm text-gray-600">1. Ημερομηνία παράστασης</span>
-            <input type="date" className="w-full border rounded px-3 py-2" value={date} onChange={(e) => setDate(e.target.value)} />
+            <span className="block"><DateField value={date} onChange={setDate} /></span>
           </label>
           <label className="block">
             <span className="text-sm text-gray-600">2. Θέαμα της ημέρας</span>
@@ -106,11 +107,11 @@ export default function Online() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <label className="block">
             <span className="text-sm text-gray-600">Δημοσίευση από</span>
-            <input type="date" className="w-full border rounded px-3 py-2" value={from} disabled={!showId} onChange={(e) => setFrom(e.target.value)} />
+            <span className="block"><DateField value={from} onChange={setFrom} disabled={!showId} /></span>
           </label>
           <label className="block">
             <span className="text-sm text-gray-600">έως</span>
-            <input type="date" className="w-full border rounded px-3 py-2" value={to} disabled={!showId} onChange={(e) => setTo(e.target.value)} />
+            <span className="block"><DateField value={to} onChange={setTo} disabled={!showId} /></span>
           </label>
         </div>
         <button onClick={publish} disabled={busy || !cfg.enabled} className="bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-40">
@@ -135,7 +136,7 @@ export default function Online() {
             {pubs.filter((p) => p.enabled).map((p) => (
               <tr key={p.id} className="border-b">
                 <td className="py-1.5">{p.title}</td>
-                <td>{p.show_date}</td>
+                <td>{dmy(p.show_date)}</td>
                 <td>{p.sales_close_at ? new Date(p.sales_close_at).toLocaleString('el-GR') : '—'}</td>
                 <td className="font-semibold">{p.sold_online}</td>
                 <td>{p.last_pull_at ?? '—'}</td>

@@ -385,7 +385,7 @@ export default async function salesRoutes(app: FastifyInstance) {
     const params: (string | number)[] = [fromDate, toDate];
     let sql =
       `SELECT t.id, t.serial, t.show_date, t.printed_at, t.checked_in_at,
-              t.cancelled_at, t.cancel_reason,
+              t.cancelled_at, t.cancel_reason, t.cancel_approver,
               s.datetime, s.payment_method, s.id AS sale_id,
               si.title, si.unit_price,
               seat.display_name AS seat, sh.title AS show_title,
@@ -491,21 +491,34 @@ export default async function salesRoutes(app: FastifyInstance) {
   app.post('/api/tickets/:id/cancel', { preHandler: requireManager }, async (req, reply) => {
     const id = Number((req.params as any).id);
     const user = req.user as JwtUser;
-    const reason = String(((req.body ?? {}) as any).reason ?? '').trim();
+    const body = (req.body ?? {}) as { reason?: string; approver?: string };
+    const reason = String(body.reason ?? '').trim();
+    const approver = String(body.approver ?? '').trim();
     if (!reason) return reply.code(400).send({ error: 'Απαιτείται αιτία ακύρωσης' });
     const t = db.prepare(
-      `SELECT t.id, t.serial, t.cancelled_at, si.id AS si_id, si.unit_price, si.vat_rate,
-              s.id AS sale_id, s.payment_method
+      `SELECT t.id, t.serial, t.cancelled_at, t.show_date, si.id AS si_id, si.unit_price, si.vat_rate,
+              s.id AS sale_id, s.payment_method, date(s.datetime) AS sale_date
        FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id JOIN sales s ON s.id = si.sale_id
        WHERE t.id = ?`
     ).get(id) as any;
     if (!t) return reply.code(404).send({ error: 'Δεν βρέθηκε εισιτήριο' });
     if (t.cancelled_at) return reply.code(409).send({ error: 'Το εισιτήριο είναι ήδη ακυρωμένο' });
+    // Ημ. που «αφορά» το εισιτήριο = ημ. εκδήλωσης (αλλιώς ημ. πώλησης για λιανική POS).
+    const eventDate: string = (t.show_date || t.sale_date || '').slice(0, 10);
+    const isPast = !!eventDate && eventDate < localDate();
+    // ΦΟΡΟΛΟΓΙΚΗ ΔΙΚΛΕΙΔΑ: εισιτήρια εκδηλώσεων που έχουν ΗΔΗ γίνει δεν ακυρώνονται
+    // κανονικά — επιτρέπεται μόνο ως ΔΙΟΡΘΩΣΗ με Ονοματεπώνυμο Εγκρίνοντος.
+    if (isPast && !approver) {
+      return reply.code(422).send({
+        error: 'Η εκδήλωση έχει ήδη γίνει. Απαιτείται το Ονοματεπώνυμο Εγκρίνοντος για φορολογική διόρθωση.',
+        requiresApprover: true, eventDate,
+      });
+    }
     const unit = +Number(t.unit_price || 0).toFixed(2);
     const vat = +((unit * (t.vat_rate || 0)) / (100 + (t.vat_rate || 0))).toFixed(2);
     tx(() => {
-      db.prepare("UPDATE tickets SET cancelled_at = datetime('now','localtime'), cancelled_by = ?, cancel_reason = ? WHERE id = ?")
-        .run(user.id, reason, id);
+      db.prepare("UPDATE tickets SET cancelled_at = datetime('now','localtime'), cancelled_by = ?, cancel_reason = ?, cancel_approver = ? WHERE id = ?")
+        .run(user.id, reason, approver || null, id);
       // Καθαρή εικόνα εσόδων: μειώνεται το παραστατικό κατά την αξία του εισιτηρίου.
       db.prepare('UPDATE sale_items SET qty = MAX(0, qty - 1), line_total = ROUND(MAX(0, line_total - ?), 2) WHERE id = ?')
         .run(unit, t.si_id);
@@ -515,9 +528,10 @@ export default async function salesRoutes(app: FastifyInstance) {
       db.prepare(
         `INSERT INTO till_movements (datetime, user_id, sale_id, credit, method, reason)
          VALUES (datetime('now','localtime'), ?, ?, ?, ?, ?)`
-      ).run(user.id, t.sale_id, -unit, t.payment_method, `Ακύρωση εισιτηρίου ${t.serial}`);
+      ).run(user.id, t.sale_id, -unit, t.payment_method,
+        isPast ? `ΔΙΟΡΘΩΣΗ ακύρωσης ${t.serial} (εκδ. ${eventDate}) — Εγκρ.: ${approver}` : `Ακύρωση εισιτηρίου ${t.serial}`);
     });
-    return { ok: true, serial: t.serial, refund: unit };
+    return { ok: true, serial: t.serial, refund: unit, isPast, eventDate };
   });
 }
 
