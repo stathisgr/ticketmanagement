@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  listShows, listTicketTypes, seatAvailability, createOrder, orderStatus,
-  eur, dateGr, type Show, type TicketType, type SeatAvail, type OrderStatus,
+  listShows, listTicketTypes, seatAvailability, createOrder, orderStatus, getTicket,
+  eur, dateGr, type Show, type TicketType, type SeatAvail, type OrderStatus, type TicketView,
 } from "./api";
 
 type Screen = "list" | "seats" | "pay" | "thanks";
 const PENDING_KEY = "tm_pending_order";
 
 export default function App() {
+  // Σελίδα εισιτηρίου: .../?t=<serial_uid>
+  const ticketUid = new URLSearchParams(window.location.search).get("t");
+  if (ticketUid) return <TicketPage uid={ticketUid} />;
+
   const [screen, setScreen] = useState<Screen>("list");
   const [shows, setShows] = useState<Show[]>([]);
   const [show, setShow] = useState<Show | null>(null);
@@ -312,6 +316,45 @@ function Calendar({ month, setMonth, hasShows, selected, onPick }: {
               onClick={() => onPick(date)}>{day}</button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ── Σελίδα εισιτηρίου (στο δικό μας domain) ──────────────────────────────
+function TicketPage({ uid }: { uid: string }) {
+  const [t, setT] = useState<TicketView | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { getTicket(uid).then(setT).catch((e) => setErr((e as Error).message)); }, [uid]);
+  if (err) return <div style={{ padding: 24, textAlign: "center" }}>{err}</div>;
+  if (!t) return <div style={{ padding: 24, textAlign: "center" }} className="muted">Φόρτωση εισιτηρίου…</div>;
+  return (
+    <div style={{ background: "var(--bg)", minHeight: "100vh", padding: 16 }}>
+      <div className="ticketcard" style={{ ["--brand" as any]: t.brandColor }}>
+        <div className="tk-top">
+          <div className="tk-venue">{t.venueName}</div>
+          <div className="tk-show">{t.showTitle}</div>
+          <div className="tk-sub">{t.showSubtitle}</div>
+        </div>
+        <div className="tk-body">
+          <div className="tk-grid">
+            <div><div className="tk-k">Ημερομηνία</div><div className="tk-v">{t.date}</div></div>
+            <div><div className="tk-k">Ώρα</div><div className="tk-v">{t.time}</div></div>
+            <div><div className="tk-k">Θέση</div><div className="tk-v">{t.seat}</div></div>
+            <div><div className="tk-k">Τύπος</div><div className="tk-v">{t.ticketType}</div></div>
+          </div>
+          <div className="tk-qr">
+            <img src={t.qr} alt="QR" width={200} height={200} />
+            <div className="tk-serial">{t.serial}</div>
+            <div className="muted" style={{ fontSize: 12 }}>Δείξτε αυτό το QR στην είσοδο</div>
+          </div>
+          <div className="tk-foot">
+            <div><div className="tk-k">Κάτοχος</div><div style={{ fontWeight: 700 }}>{t.holder}</div></div>
+            <div className="tk-price">{t.price}</div>
+          </div>
+        </div>
+        <div className="tk-legal">{t.legal}</div>
+        <div className="tk-stub" />
       </div>
     </div>
   );

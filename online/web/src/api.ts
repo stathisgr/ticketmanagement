@@ -68,6 +68,17 @@ export async function orderStatus(orderId: number, token: string): Promise<Order
   return r.json();
 }
 
+export interface TicketView {
+  venueName: string; showTitle: string; showSubtitle: string; date: string; time: string;
+  seat: string; ticketType: string; holder: string; price: string; serial: string;
+  brandColor: string; legal: string; qr: string;
+}
+export async function getTicket(uid: string): Promise<TicketView> {
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/ticket-data?uid=${encodeURIComponent(uid)}`, { headers: restHeaders });
+  if (!r.ok) throw new Error("Το εισιτήριο δεν βρέθηκε");
+  return r.json();
+}
+
 export const eur = (cents: number) => (cents / 100).toFixed(2).replace(".", ",") + " €";
 
 export function dateGr(iso: string): string {
