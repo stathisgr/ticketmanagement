@@ -11,6 +11,7 @@ export interface Show {
   show_date: string; start_time: string; end_time?: string | null; seating_mode: string;
   brand_color: string; sales_close_at: string | null;
   image_url?: string | null; description?: string | null;
+  online_capacity?: number | null; online_sold?: number | null;
 }
 export interface TicketType { id: number; title: string; price_cents: number; sort: number; }
 export interface SeatAvail { seat_id: number; x: number; y: number; kind: string; zone: string; row_label: string; seat_label: string; available: boolean; }
@@ -47,7 +48,7 @@ export async function seatAvailability(showId: number): Promise<SeatAvail[]> {
 export interface CreateOrderResult { orderId: number; orderCode: string; checkoutUrl: string; statusToken: string; }
 export async function createOrder(payload: {
   showId: number;
-  items: { seatId: number; ticketTypeId: number }[];
+  items: { seatId?: number | null; ticketTypeId: number }[];
   customer: { name: string; email: string; phone: string };
 }): Promise<CreateOrderResult> {
   const r = await fetch(`${SUPABASE_URL}/functions/v1/create-order`, {

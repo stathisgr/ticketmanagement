@@ -141,6 +141,37 @@ export default async function salesRoutes(app: FastifyInstance) {
       });
 
       for (const item of body.items) {
+        // --- Event χωρίς θέσεις (general): qty εισιτήρια, show-linked, χωρίς θέση ---
+        if (item.show_ticket_type_id != null && item.seat_id == null) {
+          const stt = db.prepare('SELECT * FROM show_ticket_types WHERE id = ?').get(item.show_ticket_type_id) as any;
+          if (!stt) throw new Error('Άγνωστο είδος εισιτηρίου θεάματος');
+          const show = db.prepare('SELECT * FROM shows WHERE id = ?').get(stt.show_id) as any;
+          const showDate = body.show_date ?? (show?.valid_from ?? show?.starts_at ?? '').slice(0, 10);
+          const qty = Math.max(1, Number(item.qty) || 1);
+          if (show?.capacity > 0) {
+            const sold = (db.prepare('SELECT COUNT(*) AS c FROM tickets WHERE show_id = ? AND show_date = ?').get(stt.show_id, showDate) as any).c;
+            if (sold + qty > show.capacity) throw new Error(`Υπέρβαση χωρητικότητας event (${show.capacity}).`);
+          }
+          const seatTt = stt.ticket_type_id ? db.prepare('SELECT * FROM ticket_types WHERE id = ?').get(stt.ticket_type_id) : null;
+          const lineTotal = +(Number(stt.price) * qty).toFixed(2);
+          total += lineTotal;
+          vatTotal += +((lineTotal * stt.vat_rate) / (100 + stt.vat_rate)).toFixed(2);
+          const itemInfo = db.prepare(
+            `INSERT INTO sale_items (sale_id, ticket_type_id, show_id, show_date, title, qty, unit_price, vat_rate, line_total)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(saleId, stt.ticket_type_id ?? null, stt.show_id, showDate, stt.title, qty, stt.price, stt.vat_rate, lineTotal);
+          const saleItemId = Number(itemInfo.lastInsertRowid);
+          for (let i = 0; i < qty; i++) {
+            const serial = serialGen.next(seatTt);
+            const qrPayload = qrSerialOnly ? serial : `${serial}|${randomUUID()}`;
+            db.prepare(
+              `INSERT INTO tickets (sale_item_id, serial, qr_payload, show_id, show_date, printed_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))`
+            ).run(saleItemId, serial, qrPayload, stt.show_id, showDate);
+            previews.push(renderTicket(mkCtx({ title: stt.title, subtitle: show?.title, show: show?.title, unitPrice: stt.price, lineTotal: stt.price, vatRate: stt.vat_rate, serial, qrPayload }), printerType, tpl));
+          }
+          continue;
+        }
         // --- Κράτηση θέσης (Φάση 2) ---
         if (item.seat_id != null && item.show_ticket_type_id != null) {
           const stt = db.prepare('SELECT * FROM show_ticket_types WHERE id = ?').get(item.show_ticket_type_id) as any;

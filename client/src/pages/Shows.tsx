@@ -6,11 +6,13 @@ interface Range { valid_from: string; valid_to: string; }
 interface Draft {
   id?: number; hall_id: number | ''; title: string;
   slots: Slot[]; ranges: Range[]; ticketTypeIds: number[];
+  seating_mode: 'seated' | 'general'; capacity: number | '';
 }
 
 const emptyDraft = (): Draft => ({
   hall_id: '', title: '', slots: [{ start_time: '18:00', end_time: '20:00' }],
   ranges: [{ valid_from: '', valid_to: '' }], ticketTypeIds: [],
+  seating_mode: 'seated', capacity: '',
 });
 
 /** 24ωρη επιλογή ώρας (χωρίς AM/PM) με dropdowns. */
@@ -73,20 +75,25 @@ export default function Shows() {
 
   async function edit(s: Show) {
     const res = await api.get<{ show: Show; ticketTypes: ShowTicketType[] }>(`/api/shows/${s.id}`);
+    const sm = ((s as any).seating_mode === 'general') ? 'general' : 'seated';
     setDraft({
-      id: s.id, hall_id: s.hall_id, title: s.title,
+      id: s.id, hall_id: s.hall_id ?? '', title: s.title,
       slots: [{ start_time: (s.start_time ?? '18:00').slice(0, 5), end_time: (s.end_time ?? '').slice(0, 5) }],
       ranges: [{ valid_from: (s.valid_from ?? '').slice(0, 10), valid_to: (s.valid_to ?? '').slice(0, 10) }],
       ticketTypeIds: res.ticketTypes.map((t) => t.ticket_type_id).filter((x): x is number => x != null),
+      seating_mode: sm, capacity: (s as any).capacity || '',
     });
   }
 
   async function save() {
     if (!draft) return;
-    if (!draft.hall_id || !draft.title) { setError('Συμπλήρωσε αίθουσα και τίτλο'); return; }
+    const general = draft.seating_mode === 'general';
+    if (!draft.title) { setError('Συμπλήρωσε τίτλο'); return; }
+    if (!general && !draft.hall_id) { setError('Συμπλήρωσε αίθουσα (ή επίλεξε Event χωρίς θέσεις)'); return; }
     if (!draft.ranges.every((r) => r.valid_from && r.valid_to)) { setError('Κάθε διάστημα χρειάζεται ημ/νία από–έως'); return; }
     setError('');
-    const hall_id = Number(draft.hall_id);
+    const hall_id = general ? null : Number(draft.hall_id);
+    const capacity = general ? (Number(draft.capacity) || 0) : 0;
     try {
       if (draft.id) {
         // Το αρχικό θέαμα ενημερώνεται (διατηρείται — ασφαλές για κρατήσεις)
@@ -102,14 +109,14 @@ export default function Shows() {
           for (let j = 0; j < draft.ranges.length; j++) {
             if (i === 0 && j === 0) continue;
             await api.post('/api/shows', {
-              hall_id, title: draft.title,
+              hall_id, title: draft.title, seating_mode: draft.seating_mode, capacity,
               timeSlots: [draft.slots[i]], dateRanges: [draft.ranges[j]], ticketTypeIds: draft.ticketTypeIds,
             });
           }
         }
       } else {
         await api.post('/api/shows', {
-          hall_id, title: draft.title,
+          hall_id, title: draft.title, seating_mode: draft.seating_mode, capacity,
           timeSlots: draft.slots, dateRanges: draft.ranges, ticketTypeIds: draft.ticketTypeIds,
         });
       }
@@ -169,7 +176,7 @@ export default function Shows() {
               <td className="p-2">{(s.start_time ?? '').slice(0, 5)}{s.end_time ? '–' + s.end_time.slice(0, 5) : ''}</td>
               <td className="p-2">{(s.valid_from ?? '').slice(0, 10)} → {(s.valid_to ?? '').slice(0, 10)}</td>
               <td className="p-2 font-medium">{s.title}</td>
-              <td className="p-2">{s.hall_name}</td>
+              <td className="p-2">{s.seating_mode === 'general' ? <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">Event χωρίς θέσεις</span> : s.hall_name}</td>
               <td className="p-2 text-center">
                 <button onClick={() => toggleActive(s)} className={`px-2 py-0.5 rounded text-xs ${s.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>
                   {s.enabled ? 'ON' : 'OFF'}
@@ -193,11 +200,35 @@ export default function Shows() {
             <div className="grid grid-cols-2 gap-3">
               <label className="text-sm col-span-2">Τίτλος
                 <input className="inp" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label>
-              <label className="text-sm col-span-2">Αίθουσα
-                <select className="inp" value={draft.hall_id} onChange={(e) => setDraft({ ...draft, hall_id: e.target.value ? Number(e.target.value) : '' })}>
-                  <option value="">— επιλογή —</option>
-                  {enabledHalls.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
-                </select></label>
+
+              {/* Τύπος θεάματος: με θέσεις (αίθουσα) ή ελεύθερη είσοδος (event) */}
+              <div className="col-span-2 flex gap-2">
+                <button type="button"
+                  onClick={() => setDraft({ ...draft, seating_mode: 'seated' })}
+                  className={`flex-1 px-3 py-2 rounded border text-sm ${draft.seating_mode === 'seated' ? 'bg-slate-800 text-white' : 'bg-white'}`}>
+                  🎭 Με θέσεις (αίθουσα)
+                </button>
+                <button type="button"
+                  onClick={() => setDraft({ ...draft, seating_mode: 'general' })}
+                  className={`flex-1 px-3 py-2 rounded border text-sm ${draft.seating_mode === 'general' ? 'bg-slate-800 text-white' : 'bg-white'}`}>
+                  🎟️ Event χωρίς θέσεις
+                </button>
+              </div>
+
+              {draft.seating_mode === 'seated' ? (
+                <label className="text-sm col-span-2">Αίθουσα
+                  <select className="inp" value={draft.hall_id} onChange={(e) => setDraft({ ...draft, hall_id: e.target.value ? Number(e.target.value) : '' })}>
+                    <option value="">— επιλογή —</option>
+                    {enabledHalls.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
+                  </select></label>
+              ) : (
+                <label className="text-sm col-span-2">Χωρητικότητα <span className="text-gray-500 font-normal">(0 ή κενό = απεριόριστη)</span>
+                  <input className="inp" type="number" min={0} placeholder="απεριόριστη"
+                    value={draft.capacity}
+                    onChange={(e) => setDraft({ ...draft, capacity: e.target.value === '' ? '' : Number(e.target.value) })} />
+                  <span className="text-xs text-gray-500">Ελεύθερη είσοδος με αύξουσα αρίθμηση — χωρίς σχέδιο αίθουσας.</span>
+                </label>
+              )}
             </div>
 
             {/* Ωριαία διαστήματα */}

@@ -19,6 +19,7 @@ export default function App() {
   const [seats, setSeats] = useState<SeatAvail[]>([]);
   const [activeType, setActiveType] = useState<number | null>(null);
   const [picked, setPicked] = useState<Record<number, number>>({}); // seat_id -> ticketTypeId
+  const [qty, setQty] = useState<Record<number, number>>({}); // ticketTypeId -> πλήθος (general events)
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -57,10 +58,15 @@ export default function App() {
   }
 
   async function openShow(s: Show) {
-    setError(""); setShow(s); setPicked({}); setBusy(true);
+    setError(""); setShow(s); setPicked({}); setQty({}); setBusy(true);
     try {
-      const [tt, sa] = await Promise.all([listTicketTypes(s.id), seatAvailability(s.id)]);
-      setTypes(tt); setSeats(sa); setActiveType(tt[0]?.id ?? null);
+      if (s.seating_mode === "general") {
+        const tt = await listTicketTypes(s.id);
+        setTypes(tt); setSeats([]); setActiveType(tt[0]?.id ?? null);
+      } else {
+        const [tt, sa] = await Promise.all([listTicketTypes(s.id), seatAvailability(s.id)]);
+        setTypes(tt); setSeats(sa); setActiveType(tt[0]?.id ?? null);
+      }
       setScreen("seats");
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
@@ -88,11 +94,32 @@ export default function App() {
   }, [seats]);
 
   const ttMap = useMemo(() => new Map(types.map((t) => [t.id, t])), [types]);
-  const total = useMemo(
-    () => Object.values(picked).reduce((s, id) => s + (ttMap.get(id)?.price_cents ?? 0), 0),
-    [picked, ttMap],
-  );
-  const count = Object.keys(picked).length;
+  const isGeneral = show?.seating_mode === "general";
+  // Υπόλοιπο διαθεσιμότητας για general (null = απεριόριστο).
+  const genRemaining = useMemo(() => {
+    if (!show || !isGeneral) return null;
+    const cap = show.online_capacity ?? 0;
+    return cap > 0 ? Math.max(0, cap - (show.online_sold ?? 0)) : null;
+  }, [show, isGeneral]);
+  const total = useMemo(() => {
+    if (isGeneral) return Object.entries(qty).reduce((s, [id, n]) => s + (ttMap.get(Number(id))?.price_cents ?? 0) * n, 0);
+    return Object.values(picked).reduce((s, id) => s + (ttMap.get(id)?.price_cents ?? 0), 0);
+  }, [isGeneral, qty, picked, ttMap]);
+  const count = isGeneral ? Object.values(qty).reduce((s, n) => s + n, 0) : Object.keys(picked).length;
+
+  function setQtyFor(ttId: number, delta: number) {
+    setQty((q) => {
+      const next = Math.max(0, (q[ttId] ?? 0) + delta);
+      // Όριο συνολικής διαθεσιμότητας (αν υπάρχει).
+      if (delta > 0 && genRemaining != null) {
+        const others = Object.entries(q).reduce((s, [id, n]) => s + (Number(id) === ttId ? 0 : n), 0);
+        if (others + next > genRemaining) return q;
+      }
+      const n = { ...q };
+      if (next === 0) delete n[ttId]; else n[ttId] = next;
+      return n;
+    });
+  }
 
   // Θεάματα ανά ημερομηνία (για το ημερολόγιο) + σύνολο διαθέσιμων ημερομηνιών.
   const showsByDate = useMemo(() => {
@@ -108,7 +135,9 @@ export default function App() {
     if (!customer.email) { setError("Συμπληρώστε email"); return; }
     setBusy(true); setError("");
     try {
-      const items = Object.entries(picked).map(([seatId, ttId]) => ({ seatId: Number(seatId), ticketTypeId: ttId }));
+      const items = isGeneral
+        ? Object.entries(qty).flatMap(([ttId, n]) => Array.from({ length: n }, () => ({ ticketTypeId: Number(ttId) })))
+        : Object.entries(picked).map(([seatId, ttId]) => ({ seatId: Number(seatId), ticketTypeId: ttId }));
       const res = await createOrder({ showId: show.id, items, customer });
       localStorage.setItem(PENDING_KEY, JSON.stringify({ orderId: res.orderId, token: res.statusToken, title: show.title }));
       window.location.href = res.checkoutUrl; // ανακατεύθυνση στο Viva checkout
@@ -117,7 +146,7 @@ export default function App() {
 
   function reset() {
     localStorage.removeItem(PENDING_KEY);
-    setPending(null); setStatus(null); setShow(null); setPicked({}); setError("");
+    setPending(null); setStatus(null); setShow(null); setPicked({}); setQty({}); setError("");
     setScreen("list");
   }
 
@@ -163,42 +192,67 @@ export default function App() {
             <h2>{show.title}</h2>
             <div className="muted">{dateGr(show.show_date)} · {show.start_time} · {show.venue_name}</div>
 
-            <div className="types">
-              {types.map((t) => (
-                <button key={t.id} className={`type ${activeType === t.id ? "active" : ""}`} onClick={() => setActiveType(t.id)}>
-                  {t.title} — {eur(t.price_cents)}
-                </button>
-              ))}
-            </div>
-
-            <div className="screenrow">ΟΘΟΝΗ / ΣΚΗΝΗ</div>
-            <div className="seatmap">
-              {grid.map((row) => (
-                <div key={row.y} className="seatrow">
-                  <span className="rowlabel">{row.cells.find((c) => c.kind === "seat")?.row_label ?? ""}</span>
-                  {row.cells.map((seat) => {
-                    if (seat.kind !== "seat") return <span key={`${row.y}-${seat.x}`} className="seat" style={{ background: "transparent" }} />;
-                    const sel = !!picked[seat.seat_id];
-                    const cls = !seat.available ? "sold" : sel ? "sel" : "";
-                    return (
-                      <button key={seat.seat_id} className={`seat ${cls}`} onClick={() => toggleSeat(seat)}
-                        title={seat.seat_label} disabled={!seat.available}>
-                        {(seat.row_label && seat.seat_label.startsWith(seat.row_label)) ? seat.seat_label.slice(seat.row_label.length) : seat.seat_label}
-                      </button>
-                    );
-                  })}
+            {!isGeneral && (
+              <>
+                <div className="types">
+                  {types.map((t) => (
+                    <button key={t.id} className={`type ${activeType === t.id ? "active" : ""}`} onClick={() => setActiveType(t.id)}>
+                      {t.title} — {eur(t.price_cents)}
+                    </button>
+                  ))}
                 </div>
-              ))}
-            </div>
 
-            <div className="legend">
-              <span><i className="dot" style={{ background: "var(--free)" }} />Ελεύθερη</span>
-              <span><i className="dot" style={{ background: "var(--sel)" }} />Επιλεγμένη</span>
-              <span><i className="dot" style={{ background: "var(--sold)" }} />Μη διαθέσιμη</span>
-            </div>
+                <div className="screenrow">ΟΘΟΝΗ / ΣΚΗΝΗ</div>
+                <div className="seatmap">
+                  {grid.map((row) => (
+                    <div key={row.y} className="seatrow">
+                      <span className="rowlabel">{row.cells.find((c) => c.kind === "seat")?.row_label ?? ""}</span>
+                      {row.cells.map((seat) => {
+                        if (seat.kind !== "seat") return <span key={`${row.y}-${seat.x}`} className="seat" style={{ background: "transparent" }} />;
+                        const sel = !!picked[seat.seat_id];
+                        const cls = !seat.available ? "sold" : sel ? "sel" : "";
+                        return (
+                          <button key={seat.seat_id} className={`seat ${cls}`} onClick={() => toggleSeat(seat)}
+                            title={seat.seat_label} disabled={!seat.available}>
+                            {(seat.row_label && seat.seat_label.startsWith(seat.row_label)) ? seat.seat_label.slice(seat.row_label.length) : seat.seat_label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="legend">
+                  <span><i className="dot" style={{ background: "var(--free)" }} />Ελεύθερη</span>
+                  <span><i className="dot" style={{ background: "var(--sel)" }} />Επιλεγμένη</span>
+                  <span><i className="dot" style={{ background: "var(--sold)" }} />Μη διαθέσιμη</span>
+                </div>
+              </>
+            )}
+
+            {isGeneral && (
+              <div className="qtylist">
+                <p className="muted">Επίλεξε πόσα εισιτήρια θέλεις — ελεύθερη είσοδος (χωρίς συγκεκριμένη θέση).</p>
+                {genRemaining != null && <p className="muted">Διαθέσιμα ακόμη: <strong>{genRemaining}</strong></p>}
+                {types.map((t) => (
+                  <div key={t.id} className="qtyrow row" style={{ alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line, #eee)" }}>
+                    <div>
+                      <strong>{t.title}</strong>
+                      <div className="muted">{eur(t.price_cents)}</div>
+                    </div>
+                    <div className="stepper" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <button className="btn alt" style={{ minWidth: 40 }} onClick={() => setQtyFor(t.id, -1)} disabled={!qty[t.id]}>−</button>
+                      <span style={{ minWidth: 24, textAlign: "center", fontWeight: 700 }}>{qty[t.id] ?? 0}</span>
+                      <button className="btn alt" style={{ minWidth: 40 }} onClick={() => setQtyFor(t.id, +1)}
+                        disabled={genRemaining != null && count >= genRemaining}>+</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="row">
-              <span className="muted">{count} θέσεις</span>
+              <span className="muted">{count} {isGeneral ? "εισιτήρια" : "θέσεις"}</span>
               <span className="total">{eur(total)}</span>
             </div>
             <button className="btn" disabled={!count} style={{ width: "100%", marginTop: 12 }}
@@ -210,15 +264,17 @@ export default function App() {
 
         {screen === "pay" && show && (
           <div className="screen">
-            <button className="link" onClick={() => setScreen("seats")}>← Πίσω στις θέσεις</button>
+            <button className="link" onClick={() => setScreen("seats")}>← Πίσω{isGeneral ? "" : " στις θέσεις"}</button>
             <h2>Στοιχεία & Πληρωμή</h2>
             <div className="summary">
               <strong>{show.title}</strong> — {dateGr(show.show_date)} {show.start_time}<br />
               <span className="muted">
-                {Object.entries(picked).map(([sid, tid]) => {
-                  const seat = seats.find((x) => x.seat_id === Number(sid));
-                  return `${seat?.seat_label} (${ttMap.get(tid)?.title})`;
-                }).join(", ")}
+                {isGeneral
+                  ? Object.entries(qty).map(([tid, n]) => `${n}× ${ttMap.get(Number(tid))?.title}`).join(", ")
+                  : Object.entries(picked).map(([sid, tid]) => {
+                      const seat = seats.find((x) => x.seat_id === Number(sid));
+                      return `${seat?.seat_label} (${ttMap.get(tid)?.title})`;
+                    }).join(", ")}
               </span>
               <div className="row" style={{ marginTop: 8 }}><span>Σύνολο</span><span className="total">{eur(total)}</span></div>
             </div>

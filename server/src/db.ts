@@ -48,6 +48,9 @@ export function migrate(): void {
     'ALTER TABLE fiscal_config ADD COLUMN pos_config TEXT',
     // Παράθυρο check-in: λεπτά ΠΡΙΝ την έναρξη που ανοίγει η είσοδος (0 = χωρίς περιορισμό).
     'ALTER TABLE venue ADD COLUMN checkin_window_min INTEGER NOT NULL DEFAULT 30',
+    // Events χωρίς θέσεις (general) + χωρητικότητα.
+    "ALTER TABLE shows ADD COLUMN seating_mode TEXT NOT NULL DEFAULT 'seated'",
+    'ALTER TABLE shows ADD COLUMN capacity INTEGER NOT NULL DEFAULT 0',
     // Το παλιό unique index ήταν (show_id, seat_id) — το ανακατασκευάζουμε με show_date.
     'DROP INDEX IF EXISTS idx_tickets_seat_show',
   ];
@@ -70,6 +73,29 @@ export function migrate(): void {
       db.exec('INSERT INTO users_new (id,username,password_hash,full_name,role,enabled,created_at) SELECT id,username,password_hash,full_name,role,enabled,created_at FROM users');
       db.exec('DROP TABLE users');
       db.exec('ALTER TABLE users_new RENAME TO users');
+      db.exec('COMMIT');
+      db.exec('PRAGMA foreign_keys=ON');
+    }
+  } catch { try { db.exec('ROLLBACK'); db.exec('PRAGMA foreign_keys=ON'); } catch { /* ignore */ } }
+
+  // Αναβάθμιση shows: hall_id NULLABLE (για events χωρίς θέσεις).
+  try {
+    const sh = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='shows'").get() as any;
+    if (sh?.sql && /hall_id\s+INTEGER\s+NOT\s+NULL/i.test(sh.sql)) {
+      db.exec('PRAGMA foreign_keys=OFF');
+      db.exec('BEGIN');
+      db.exec(`CREATE TABLE shows_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hall_id INTEGER REFERENCES halls(id) ON DELETE CASCADE,
+        title TEXT NOT NULL, starts_at TEXT, ends_at TEXT, start_time TEXT, end_time TEXT,
+        valid_from TEXT, valid_to TEXT, enabled INTEGER NOT NULL DEFAULT 1,
+        seating_mode TEXT NOT NULL DEFAULT 'seated', capacity INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')))`);
+      db.exec(`INSERT INTO shows_new (id,hall_id,title,starts_at,ends_at,start_time,end_time,valid_from,valid_to,enabled,seating_mode,capacity,created_at)
+               SELECT id,hall_id,title,starts_at,ends_at,start_time,end_time,valid_from,valid_to,enabled,
+                      COALESCE(seating_mode,'seated'),COALESCE(capacity,0),created_at FROM shows`);
+      db.exec('DROP TABLE shows');
+      db.exec('ALTER TABLE shows_new RENAME TO shows');
       db.exec('COMMIT');
       db.exec('PRAGMA foreign_keys=ON');
     }

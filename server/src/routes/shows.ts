@@ -15,17 +15,17 @@ export default async function showRoutes(app: FastifyInstance) {
     if (date) {
       return db
         .prepare(
-          `SELECT sh.*, h.name AS hall_name FROM shows sh JOIN halls h ON h.id = sh.hall_id
+          `SELECT sh.*, h.name AS hall_name FROM shows sh LEFT JOIN halls h ON h.id = sh.hall_id
            WHERE sh.valid_from IS NOT NULL AND sh.valid_to IS NOT NULL
              AND ? BETWEEN date(sh.valid_from) AND date(sh.valid_to)
-             AND h.enabled = 1 AND sh.enabled = 1
+             AND (sh.hall_id IS NULL OR h.enabled = 1) AND sh.enabled = 1
            ORDER BY sh.start_time, sh.id`
         )
         .all(date);
     }
     return db
       .prepare(
-        `SELECT sh.*, h.name AS hall_name FROM shows sh JOIN halls h ON h.id = sh.hall_id
+        `SELECT sh.*, h.name AS hall_name FROM shows sh LEFT JOIN halls h ON h.id = sh.hall_id
          ORDER BY sh.valid_from DESC, sh.start_time LIMIT 300`
       )
       .all();
@@ -34,7 +34,7 @@ export default async function showRoutes(app: FastifyInstance) {
   app.get('/api/shows/:id', { preHandler: authenticate }, async (req, reply) => {
     const id = Number((req.params as any).id);
     const show = db
-      .prepare(`SELECT sh.*, h.name AS hall_name FROM shows sh JOIN halls h ON h.id = sh.hall_id WHERE sh.id = ?`)
+      .prepare(`SELECT sh.*, h.name AS hall_name FROM shows sh LEFT JOIN halls h ON h.id = sh.hall_id WHERE sh.id = ?`)
       .get(id) as any;
     if (!show) return reply.code(404).send({ error: 'Δεν βρέθηκε θέαμα' });
     const ticketTypes = db.prepare('SELECT * FROM show_ticket_types WHERE show_id = ? ORDER BY sort_order, id').all(id);
@@ -48,6 +48,13 @@ export default async function showRoutes(app: FastifyInstance) {
     if (!show) return reply.code(404).send({ error: 'Δεν βρέθηκε θέαμα' });
     const { date } = req.query as { date?: string };
     const showDate = date ?? (show.valid_from ?? '').slice(0, 10);
+    const ticketTypesAll = db.prepare('SELECT * FROM show_ticket_types WHERE show_id = ? ORDER BY sort_order, id').all(id);
+    // Event χωρίς θέσεις: επιστρέφουμε μετρητή πωλήσεων + χωρητικότητα (καμία θέση).
+    if (show.seating_mode === 'general') {
+      const sold = (db.prepare('SELECT COUNT(*) AS c FROM tickets WHERE show_id = ? AND show_date = ?').get(id, showDate) as any).c;
+      const remaining = show.capacity > 0 ? Math.max(0, show.capacity - sold) : null; // null = απεριόριστο
+      return { show, seats: [], ticketTypes: ticketTypesAll, show_date: showDate, general: true, sold, capacity: show.capacity, remaining };
+    }
     const seats = db
       .prepare(
         `SELECT s.*,
@@ -59,8 +66,7 @@ export default async function showRoutes(app: FastifyInstance) {
          WHERE s.hall_id = ? ORDER BY s.y, s.x`
       )
       .all(id, showDate, id, showDate, show.hall_id);
-    const ticketTypes = db.prepare('SELECT * FROM show_ticket_types WHERE show_id = ? ORDER BY sort_order, id').all(id);
-    return { show, seats, ticketTypes, show_date: showDate };
+    return { show, seats, ticketTypes: ticketTypesAll, show_date: showDate, general: false };
   });
 
   // Δημιουργία: υποστηρίζει ΠΟΛΛΑΠΛΑ ωριαία διαστήματα × διαστήματα ημερομηνιών.
@@ -72,7 +78,10 @@ export default async function showRoutes(app: FastifyInstance) {
     const ranges: { valid_from: string; valid_to: string }[] =
       Array.isArray(b.dateRanges) && b.dateRanges.length ? b.dateRanges : [{ valid_from: b.valid_from, valid_to: b.valid_to }];
 
-    if (!b?.hall_id || !b?.title) return reply.code(400).send({ error: 'Απαιτούνται αίθουσα και τίτλος' });
+    const general = b.seating_mode === 'general';
+    const capacity = Math.max(0, Number(b.capacity) || 0);
+    if (!b?.title) return reply.code(400).send({ error: 'Απαιτείται τίτλος' });
+    if (!general && !b?.hall_id) return reply.code(400).send({ error: 'Απαιτείται αίθουσα (ή επίλεξε Event χωρίς θέσεις)' });
     if (!ranges.every((r) => r.valid_from && r.valid_to))
       return reply.code(400).send({ error: 'Κάθε διάστημα χρειάζεται ημερομηνία από–έως' });
     if (!slots.every((s) => s.start_time))
@@ -81,14 +90,15 @@ export default async function showRoutes(app: FastifyInstance) {
     const created: number[] = [];
     tx(() => {
       const ins = db.prepare(
-        `INSERT INTO shows (hall_id, title, starts_at, start_time, end_time, valid_from, valid_to, enabled)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+        `INSERT INTO shows (hall_id, title, starts_at, start_time, end_time, valid_from, valid_to, enabled, seating_mode, capacity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
       );
       for (const r of ranges) {
         for (const s of slots) {
           const info = ins.run(
-            b.hall_id, b.title, composeStartsAt(r.valid_from, s.start_time),
-            s.start_time, s.end_time ?? null, r.valid_from, r.valid_to
+            general ? null : b.hall_id, b.title, composeStartsAt(r.valid_from, s.start_time),
+            s.start_time, s.end_time ?? null, r.valid_from, r.valid_to,
+            general ? 'general' : 'seated', capacity
           );
           const showId = Number(info.lastInsertRowid);
           assignTicketTypes(showId, b.ticketTypeIds);
@@ -185,7 +195,7 @@ function assignTicketTypes(showId: number, ticketTypeIds: number[] | undefined) 
 
 function loadShow(id: number) {
   const show = db
-    .prepare(`SELECT sh.*, h.name AS hall_name FROM shows sh JOIN halls h ON h.id = sh.hall_id WHERE sh.id = ?`)
+    .prepare(`SELECT sh.*, h.name AS hall_name FROM shows sh LEFT JOIN halls h ON h.id = sh.hall_id WHERE sh.id = ?`)
     .get(id);
   const ticketTypes = db.prepare('SELECT * FROM show_ticket_types WHERE show_id = ? ORDER BY sort_order, id').all(id);
   return { show, ticketTypes };

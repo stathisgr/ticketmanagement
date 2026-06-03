@@ -88,6 +88,7 @@ export async function pushPublication(showId: number, showDate: string, salesClo
   if (!show) throw new Error('Δεν βρέθηκε θέαμα');
   const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
 
+  const isGeneral = show.seating_mode === 'general';
   // 1) Show (upsert ανά local_id + ημερομηνία)
   const [cloudShow] = await upsert(c, 'shows', 'local_id,show_date', [{
     local_id: show.id,
@@ -97,7 +98,8 @@ export async function pushPublication(showId: number, showDate: string, salesClo
     show_date: showDate,
     start_time: show.start_time ?? '21:00',
     end_time: show.end_time ?? null,
-    seating_mode: 'seated',
+    seating_mode: isGeneral ? 'general' : 'seated',
+    online_capacity: isGeneral ? (show.capacity ?? 0) : 0,
     sales_close_at: salesCloseAt,
     enabled: true,
   }]);
@@ -109,6 +111,18 @@ export async function pushPublication(showId: number, showDate: string, salesClo
     local_id: t.id, show_id: cloudShowId, title: t.title,
     price_cents: euroToCents(t.price), vat_rate: t.vat_rate ?? 6, sort: t.sort_order ?? 0, enabled: true,
   })));
+
+  // Για general events ΔΕΝ υπάρχουν θέσεις — τέλος εδώ.
+  if (isGeneral) {
+    db.prepare(
+      `INSERT INTO online_publications (show_id, show_date, cloud_show_id, sales_close_at, enabled, pushed_at)
+       VALUES (?, ?, ?, ?, 1, datetime('now','localtime'))
+       ON CONFLICT(show_id, show_date) DO UPDATE SET
+         cloud_show_id = excluded.cloud_show_id, sales_close_at = excluded.sales_close_at,
+         enabled = 1, pushed_at = datetime('now','localtime')`
+    ).run(showId, showDate, cloudShowId, salesCloseAt);
+    return cloudShowId;
+  }
 
   // 3) ΟΛΟΣ ο χάρτης της αίθουσας (θέσεις + διάδρομοι + κενά) με συντεταγμένες,
   //    ώστε το online seat-map να είναι ίδιο με του ταμείου.

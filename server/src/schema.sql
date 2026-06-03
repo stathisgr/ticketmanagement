@@ -208,7 +208,7 @@ CREATE INDEX IF NOT EXISTS idx_seats_hall ON seats(hall_id);
 -- Θεάματα/προβολές (προγραμματισμός ανά αίθουσα & ώρα)
 CREATE TABLE IF NOT EXISTS shows (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  hall_id     INTEGER NOT NULL REFERENCES halls(id) ON DELETE CASCADE,
+  hall_id     INTEGER REFERENCES halls(id) ON DELETE CASCADE,  -- NULL για events χωρίς θέσεις
   title       TEXT NOT NULL,
   starts_at   TEXT,                         -- (legacy/derived: valid_from + start_time)
   ends_at     TEXT,
@@ -217,6 +217,8 @@ CREATE TABLE IF NOT EXISTS shows (
   valid_from  TEXT,                         -- ημερομηνία ισχύος ΑΠΟ
   valid_to    TEXT,                         -- ημερομηνία ισχύος ΕΩΣ
   enabled     INTEGER NOT NULL DEFAULT 1,   -- ενεργό/ανενεργό πρόγραμμα
+  seating_mode TEXT NOT NULL DEFAULT 'seated' CHECK (seating_mode IN ('seated','general')),
+  capacity    INTEGER NOT NULL DEFAULT 0,   -- general: μέγιστα εισιτήρια (0 = απεριόριστο)
   created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_shows_hall ON shows(hall_id);
