@@ -17,7 +17,8 @@ export default async function venueRoutes(app: FastifyInstance) {
       `UPDATE venue SET name=@name, vat_number=@vat_number, tax_office=@tax_office, address=@address,
         postal_code=@postal_code, city=@city, phone=@phone, email=@email, default_vat=@default_vat,
         pos_mode=@pos_mode, default_printer_type=@dpt,
-        numbering_mode=@numbering_mode, serial_next=@serial_next, serial_width=@serial_width WHERE id = 1`
+        numbering_mode=@numbering_mode, serial_next=@serial_next, serial_width=@serial_width,
+        checkin_window_min=@checkin_window_min WHERE id = 1`
     ).run({
       name: b.name ?? '',
       vat_number: b.vat_number ?? null,
@@ -33,6 +34,7 @@ export default async function venueRoutes(app: FastifyInstance) {
       numbering_mode,
       serial_next: Math.max(1, Number(b.serial_next) || 1),
       serial_width: Math.min(12, Math.max(1, Number(b.serial_width) || 6)),
+      checkin_window_min: Math.max(0, Number(b.checkin_window_min ?? 30)),
     });
     return db.prepare('SELECT * FROM venue WHERE id = 1').get();
   });
@@ -90,22 +92,28 @@ export default async function venueRoutes(app: FastifyInstance) {
 
   app.put('/api/fiscal', { preHandler: requireManager }, async (req) => {
     const b = req.body as any;
-    const issue_mode = ['disabled', 'ticket_only', 'cash_register', 'provider'].includes(b.issue_mode) ? b.issue_mode : 'ticket_only';
-    // Συγχρονισμός του legacy mode (έχει CHECK) από το issue_mode.
+    const cur = db.prepare('SELECT * FROM fiscal_config WHERE id = 1').get() as any;
+    // MERGE: ενημερώνουμε ΜΟΝΟ τα πεδία που στάλθηκαν (ώστε POS & Πάροχος να αποθηκεύονται ανεξάρτητα).
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(b, k);
+    const issue_mode = has('issue_mode')
+      ? (['disabled', 'ticket_only', 'cash_register', 'provider'].includes(b.issue_mode) ? b.issue_mode : 'ticket_only')
+      : cur.issue_mode;
     const mode = issue_mode === 'cash_register' ? 'cash_register_file' : issue_mode === 'provider' ? 'e_invoicing' : 'none';
-    const pos_provider = ['none', 'viva'].includes(b.pos_provider) ? b.pos_provider : 'none';
+    const pos_provider = has('pos_provider')
+      ? (['none', 'viva'].includes(b.pos_provider) ? b.pos_provider : 'none')
+      : cur.pos_provider;
     db.prepare(
       `UPDATE fiscal_config SET mode=@mode, issue_mode=@issue_mode, legal_note=@legal_note, export_folder=@export_folder,
         provider=@provider, config=@config, pos_provider=@pos_provider, pos_config=@pos_config WHERE id = 1`
     ).run({
       mode,
       issue_mode,
-      legal_note: b.legal_note ?? 'Δεν αποτελεί φορολογικό παραστατικό',
-      export_folder: b.export_folder ?? null,
-      provider: b.provider ?? null,
-      config: b.config ? JSON.stringify(b.config) : null,
+      legal_note: has('legal_note') ? (b.legal_note ?? 'Δεν αποτελεί φορολογικό παραστατικό') : cur.legal_note,
+      export_folder: has('export_folder') ? (b.export_folder ?? null) : cur.export_folder,
+      provider: has('provider') ? (b.provider ?? null) : cur.provider,
+      config: has('config') ? (b.config ? JSON.stringify(b.config) : null) : cur.config,
       pos_provider,
-      pos_config: b.pos_config ? JSON.stringify(b.pos_config) : null,
+      pos_config: has('pos_config') ? (b.pos_config ? JSON.stringify(b.pos_config) : null) : cur.pos_config,
     });
     return db.prepare('SELECT * FROM fiscal_config WHERE id = 1').get();
   });

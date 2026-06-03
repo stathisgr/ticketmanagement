@@ -68,7 +68,8 @@ export default async function onlineRoutes(app: FastifyInstance) {
   });
 
   // --- Συγχρονισμός (pull online-πουλημένων θέσεων) ---
-  app.post('/api/online/pull', { preHandler: requireManager }, async (_req, reply) => {
+  // Διάβασμα εισιτηρίων από το Cloud — επιτρέπεται και στον ταμία.
+  app.post('/api/online/pull', { preHandler: authenticate }, async (_req, reply) => {
     try { return await pull(); }
     catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
   });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 
-interface Result { status: 'ok' | 'already' | 'not_found'; title?: string; seat?: string; show?: string; show_date?: string; serial?: string; at?: string; code?: string; }
+interface Result { status: 'ok' | 'already' | 'not_found' | 'wrong_time'; title?: string; seat?: string; show?: string; show_date?: string; serial?: string; at?: string; code?: string; message?: string; }
 interface Stats { issued: number; entered: number; date: string; }
 interface Recent { id: number; serial: string; checked_in_at: string; title: string; seat?: string; show_title?: string; }
 
@@ -34,14 +34,26 @@ export default function CheckIn() {
     ok: { cls: 'bg-emerald-600', icon: '✓', label: 'ΕΓΚΥΡΟ — ΕΙΣΟΔΟΣ' },
     already: { cls: 'bg-amber-500', icon: '⚠', label: 'ΗΔΗ ΕΧΕΙ ΜΠΕΙ' },
     not_found: { cls: 'bg-red-600', icon: '✕', label: 'ΑΓΝΩΣΤΟ ΕΙΣΙΤΗΡΙΟ' },
+    wrong_time: { cls: 'bg-orange-600', icon: '⏱', label: 'ΕΚΤΟΣ ΩΡΑΣ ΕΙΣΟΔΟΥ' },
   }[res.status];
+
+  async function syncCloud() {
+    setBusy(true);
+    try { const r = await api.post<{ pulled: number }>('/api/online/pull', {}); setRes({ status: 'ok', title: `Συγχρονισμός Cloud: ${r.pulled} νέες θέσεις` } as Result); refresh(); }
+    catch (e) { setRes({ status: 'not_found', code: (e as Error).message } as Result); }
+    finally { setBusy(false); }
+  }
 
   return (
     <div className="p-4 max-w-3xl mx-auto">
       <div className="flex items-center gap-3 mb-3">
         <h2 className="text-xl font-bold">Έλεγχος εισόδου</h2>
+        <button onClick={syncCloud} disabled={busy}
+          className="ml-auto text-sm bg-emerald-700 text-white rounded px-3 py-1 disabled:opacity-40" title="Διάβασε εισιτήρια από το Cloud (online πωλήσεις)">
+          ⟳ Συγχρονισμός Cloud
+        </button>
         {stats && (
-          <span className="ml-auto text-sm bg-slate-100 rounded px-3 py-1">
+          <span className="text-sm bg-slate-100 rounded px-3 py-1">
             Μπήκαν σήμερα: <b>{stats.entered}</b> / {stats.issued}
           </span>
         )}
@@ -60,7 +72,12 @@ export default function CheckIn() {
       {banner && res && (
         <div className={`${banner.cls} text-white rounded-xl p-5 mb-4`}>
           <div className="text-3xl font-bold">{banner.icon} {banner.label}</div>
-          {res.status !== 'not_found' ? (
+          {res.status === 'wrong_time' ? (
+            <div className="mt-1 text-lg">
+              {res.message}
+              <div className="text-sm opacity-90">{res.title}{res.show ? ` · ${res.show}` : ''} — Νο {res.serial}</div>
+            </div>
+          ) : res.status !== 'not_found' ? (
             <div className="mt-1 text-lg">
               {res.title}{res.seat ? ` · Θέση ${res.seat}` : ''}{res.show ? ` · ${res.show}` : ''}{res.show_date ? ` (${res.show_date})` : ''}
               <div className="text-sm opacity-90">Νο {res.serial}{res.status === 'already' && res.at ? ` — είχε μπει: ${res.at}` : ''}</div>

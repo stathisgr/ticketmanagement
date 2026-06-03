@@ -13,7 +13,8 @@ export default async function checkinRoutes(app: FastifyInstance) {
     const serial = c.includes('|') ? c.split('|')[0] : c;
     const row = db
       .prepare(
-        `SELECT t.*, si.title, seat.display_name AS seat, sh.title AS show_title
+        `SELECT t.*, si.title, seat.display_name AS seat,
+                sh.title AS show_title, sh.start_time AS show_start, sh.end_time AS show_end
          FROM tickets t
          JOIN sale_items si ON si.id = t.sale_item_id
          LEFT JOIN seats seat ON seat.id = t.seat_id
@@ -24,6 +25,25 @@ export default async function checkinRoutes(app: FastifyInstance) {
     return row ?? null;
   }
 
+  /**
+   * Έλεγχος χρονικού παραθύρου εισόδου: επιτρέπεται μόνο για το θέαμα που «τρέχει» τώρα.
+   * Ανοίγει windowMin λεπτά πριν την έναρξη και κλείνει στη λήξη (ή +3 ώρες αν δεν έχει λήξη).
+   * Επιστρέφει null αν ΟΚ, αλλιώς μήνυμα. Εισιτήρια χωρίς θέαμα/ώρα δεν περιορίζονται.
+   */
+  function timeWindowError(t: any): string | null {
+    const win = Number((db.prepare('SELECT checkin_window_min FROM venue WHERE id = 1').get() as any)?.checkin_window_min ?? 30);
+    if (!win || !t.show_date || !t.show_start) return null;
+    const start = new Date(`${t.show_date}T${t.show_start}:00`);
+    if (isNaN(start.getTime())) return null;
+    const end = t.show_end ? new Date(`${t.show_date}T${t.show_end}:00`) : new Date(start.getTime() + 3 * 3600_000);
+    const open = new Date(start.getTime() - win * 60_000);
+    const now = new Date();
+    const hhmm = (d: Date) => d.toTimeString().slice(0, 5);
+    if (now < open) return `Η είσοδος για «${t.show_title}» ανοίγει στις ${hhmm(open)} (έναρξη ${t.show_start}).`;
+    if (now > end) return `Η είσοδος για «${t.show_title}» έχει κλείσει (έναρξη ${t.show_start}).`;
+    return null;
+  }
+
   // Σάρωση/πληκτρολόγηση κωδικού → check-in.
   app.post('/api/checkin', { preHandler: authenticate }, async (req, reply) => {
     const user = req.user as JwtUser;
@@ -32,6 +52,8 @@ export default async function checkinRoutes(app: FastifyInstance) {
     if (!t) return reply.send({ status: 'not_found', code });
     const info = { id: t.id, serial: t.serial, title: t.title, seat: t.seat, show: t.show_title, show_date: t.show_date };
     if (t.checked_in_at) return reply.send({ status: 'already', at: t.checked_in_at, ...info });
+    const winErr = timeWindowError(t);
+    if (winErr) return reply.send({ status: 'wrong_time', message: winErr, ...info });
     db.prepare("UPDATE tickets SET checked_in_at = datetime('now','localtime'), checked_in_by = ? WHERE id = ?").run(user.id, t.id);
     return reply.send({ status: 'ok', at: new Date().toLocaleString('el-GR'), ...info });
   });

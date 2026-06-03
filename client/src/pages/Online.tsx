@@ -10,7 +10,6 @@ interface Publication {
 
 export default function Online() {
   const [cfg, setCfg] = useState<OnlineConfig>({ supabase_url: '', sync_minutes_before: 60, enabled: false, has_key: false });
-  const [keyInput, setKeyInput] = useState('');
   const [shows, setShows] = useState<Show[]>([]);
   const [pubs, setPubs] = useState<Publication[]>([]);
   const [showId, setShowId] = useState<number | ''>('');
@@ -42,16 +41,6 @@ export default function Online() {
     setFrom((s.valid_from ?? date).slice(0, 10) || date);
     setTo((s.valid_to ?? date).slice(0, 10) || date);
   }, [showId]);
-
-  async function saveConfig() {
-    setBusy(true); setError(''); setMsg('');
-    try {
-      const body: any = { supabase_url: cfg.supabase_url, sync_minutes_before: cfg.sync_minutes_before, enabled: cfg.enabled };
-      if (keyInput) body.service_key = keyInput;
-      const r = await api.put<OnlineConfig>('/api/online/config', body);
-      setCfg(r); setKeyInput(''); setMsg('Οι ρυθμίσεις αποθηκεύτηκαν.');
-    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
-  }
 
   async function publish() {
     if (!showId || !from || !to) { setError('Διάλεξε θέαμα και εύρος ημερομηνιών'); return; }
@@ -87,33 +76,11 @@ export default function Online() {
       {error && <div className="bg-red-100 text-red-700 p-2 rounded">{error}</div>}
       {msg && <div className="bg-green-100 text-green-700 p-2 rounded">{msg}</div>}
 
-      {/* Σύνδεση */}
-      <div className="bg-white rounded-lg shadow p-4 space-y-3">
-        <h2 className="font-semibold text-lg">Σύνδεση</h2>
-        <label className="block">
-          <span className="text-sm text-gray-600">Διεύθυνση Cloud (URL)</span>
-          <input className="w-full border rounded px-3 py-2" placeholder="https://..."
-            value={cfg.supabase_url} onChange={(e) => setCfg({ ...cfg, supabase_url: e.target.value })} />
-        </label>
-        <label className="block">
-          <span className="text-sm text-gray-600">Service role key {cfg.has_key && <em className="text-green-600">(αποθηκευμένο — άφησέ το κενό για να μην αλλάξει)</em>}</span>
-          <input type="password" className="w-full border rounded px-3 py-2" placeholder={cfg.has_key ? '•••••••• αποθηκευμένο' : 'service_role key'}
-            value={keyInput} onChange={(e) => setKeyInput(e.target.value)} />
-        </label>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-sm">
-            Auto-pull λεπτά πριν το θέαμα:
-            <input type="number" className="w-20 border rounded px-2 py-1" value={cfg.sync_minutes_before}
-              onChange={(e) => setCfg({ ...cfg, sync_minutes_before: Number(e.target.value) })} />
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={cfg.enabled} onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })} />
-            Ενεργό
-          </label>
+      {!cfg.enabled && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded text-sm">
+          Η σύνδεση με το Cloud δεν είναι ενεργή. Ρύθμισέ την στις <b>Ρυθμίσεις → Online Ρυθμίσεις</b>.
         </div>
-        <button onClick={saveConfig} disabled={busy} className="bg-slate-800 text-white px-4 py-2 rounded disabled:opacity-40">Αποθήκευση</button>
-        <p className="text-xs text-gray-400">Το service_role key είναι μυστικό· μένει μόνο τοπικά στον server και δεν φεύγει στον browser του πελάτη.</p>
-      </div>
+      )}
 
       {/* Δημοσίευση */}
       <div className="bg-white rounded-lg shadow p-4 space-y-3">

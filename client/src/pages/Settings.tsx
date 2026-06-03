@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, getToken, type TicketType, type Venue, type FiscalConfig, type PrintTemplate, type Printer, type Station } from '../api';
 
-type Tab = 'business' | 'printers' | 'ticket' | 'types';
+type Tab = 'business' | 'printers' | 'ticket' | 'types' | 'online';
 
 export default function Settings({ onSaved }: { onSaved?: () => void }) {
   const [tab, setTab] = useState<Tab>('business');
@@ -10,6 +10,7 @@ export default function Settings({ onSaved }: { onSaved?: () => void }) {
     { id: 'printers', label: 'Εκτυπωτές' },
     { id: 'ticket', label: 'Φόρμες' },
     { id: 'types', label: 'Τύποι Εισιτηρίων' },
+    { id: 'online', label: 'Online Ρυθμίσεις' },
   ];
   return (
     <div className="p-4 max-w-4xl mx-auto">
@@ -25,6 +26,7 @@ export default function Settings({ onSaved }: { onSaved?: () => void }) {
       {tab === 'printers' && <PrintersTab />}
       {tab === 'ticket' && <TicketFormTab />}
       {tab === 'types' && <TypesTab />}
+      {tab === 'online' && <OnlineTab />}
       <style>{`.inp{width:100%;border:1px solid #d1d5db;border-radius:.375rem;padding:.45rem .6rem}`}</style>
     </div>
   );
@@ -34,6 +36,114 @@ function Msg({ text }: { text: string }) {
   if (!text) return null;
   const ok = text.startsWith('✓');
   return <div className={`${ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'} p-2 rounded mb-3 text-sm`}>{text}</div>;
+}
+
+/* ---------------- Online Ρυθμίσεις (Cloud σύνδεση) ---------------- */
+interface OnlineCfg { supabase_url: string; sync_minutes_before: number; enabled: boolean; has_key: boolean; }
+function OnlineTab() {
+  const [cfg, setCfg] = useState<OnlineCfg>({ supabase_url: '', sync_minutes_before: 60, enabled: false, has_key: false });
+  const [keyInput, setKeyInput] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [posProvider, setPosProvider] = useState<'none' | 'viva'>('none');
+  const [posCfg, setPosCfg] = useState<any>({ env: 'demo' });
+
+  useEffect(() => {
+    api.get<OnlineCfg>('/api/online/config').then(setCfg).catch(() => {});
+    api.get<FiscalConfig>('/api/fiscal').then((fc) => {
+      setPosProvider((fc.pos_provider as any) ?? 'none');
+      try { setPosCfg({ env: 'demo', ...(fc.pos_config ? JSON.parse(fc.pos_config) : {}) }); } catch { setPosCfg({ env: 'demo' }); }
+    }).catch(() => {});
+  }, []);
+
+  async function save() {
+    setBusy(true); setMsg('');
+    try {
+      const body: any = { supabase_url: cfg.supabase_url, sync_minutes_before: cfg.sync_minutes_before, enabled: cfg.enabled };
+      if (keyInput) body.service_key = keyInput;
+      const r = await api.put<OnlineCfg>('/api/online/config', body);
+      setCfg(r); setKeyInput(''); setMsg('✓ Αποθηκεύτηκε');
+    } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
+  }
+
+  // POS/Κάρτες — αποθηκεύεται ανεξάρτητα (merge) στο fiscal_config.
+  async function savePos() {
+    setMsg('');
+    try { await api.put('/api/fiscal', { pos_provider: posProvider, pos_config: posCfg }); setMsg('✓ Αποθηκεύτηκε (POS)'); }
+    catch (e) { setMsg((e as Error).message); }
+  }
+  async function testPos() {
+    setMsg('Δοκιμή σύνδεσης POS…');
+    try { const r = await api.post<{ ok: boolean; error?: string }>('/api/pos/test', {}); setMsg(r.ok ? '✓ Σύνδεση Viva ΟΚ (token)' : '✗ ' + (r.error ?? 'Αποτυχία')); }
+    catch (e) { setMsg((e as Error).message); }
+  }
+  async function testCheckout() {
+    try {
+      const r = await api.post<{ checkoutUrl: string; orderCode: string }>('/api/pos/checkout', { amount: 1.0, merchantTrns: 'Δοκιμή', customerTrns: 'Δοκιμαστική πληρωμή' });
+      window.open(r.checkoutUrl, '_blank');
+      setMsg(`✓ Δοκιμαστική πληρωμή 1,00€ (orderCode ${r.orderCode}) — άνοιξε το checkout.`);
+    } catch (e) { setMsg((e as Error).message); }
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <Msg text={msg} />
+      <h3 className="font-semibold mb-1">Online Cloud βάση</h3>
+      <p className="text-xs text-gray-500 mb-3">Σύνδεση με την cloud βάση των online κρατήσεων. Το κλειδί μένει μόνο τοπικά στον server και δεν φεύγει στον browser του πελάτη.</p>
+      <L label="Διεύθυνση Cloud (URL)">
+        <input className="inp" placeholder="https://..." value={cfg.supabase_url} onChange={(e) => setCfg({ ...cfg, supabase_url: e.target.value })} />
+      </L>
+      <L label={`Κλειδί υπηρεσίας (service key)${cfg.has_key ? ' — αποθηκευμένο, άφησέ το κενό για να μην αλλάξει' : ''}`}>
+        <input type="password" className="inp" placeholder={cfg.has_key ? '•••••••• αποθηκευμένο' : 'service key'} value={keyInput} onChange={(e) => setKeyInput(e.target.value)} />
+      </L>
+      <div className="grid grid-cols-2 gap-3 mt-2">
+        <L label="Auto-sync: λεπτά πριν το θέαμα">
+          <input type="number" min={0} className="inp" value={cfg.sync_minutes_before} onChange={(e) => setCfg({ ...cfg, sync_minutes_before: Number(e.target.value) })} />
+        </L>
+        <label className="flex items-end gap-2 text-sm pb-2">
+          <input type="checkbox" checked={cfg.enabled} onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })} /> Ενεργό
+        </label>
+      </div>
+      <button onClick={save} disabled={busy} className="mt-3 bg-slate-800 text-white px-5 py-2 rounded disabled:opacity-40">Αποθήκευση</button>
+
+      <hr className="my-5" />
+      <h3 className="font-semibold mb-2">Σύνδεση POS / Κάρτες</h3>
+      <L label="Πάροχος καρτών (POS)">
+        <select className="inp" value={posProvider} onChange={(e) => setPosProvider(e.target.value as any)}>
+          <option value="none">Χωρίς σύνδεση POS</option>
+          <option value="viva">Viva Payments</option>
+        </select>
+      </L>
+      {posProvider === 'viva' && (
+        <div className="border rounded p-3 bg-gray-50">
+          <div className="grid grid-cols-2 gap-3">
+            <L label="Περιβάλλον">
+              <select className="inp" value={posCfg.env ?? 'demo'} onChange={(e) => setPosCfg({ ...posCfg, env: e.target.value })}>
+                <option value="demo">Demo</option>
+                <option value="prod">Production</option>
+              </select>
+            </L>
+            <L label="Merchant ID"><input className="inp" value={posCfg.merchantId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, merchantId: e.target.value })} /></L>
+            <L label="API Key (για κατάσταση πληρωμής)"><input type="password" className="inp" value={posCfg.apiKey ?? ''} onChange={(e) => setPosCfg({ ...posCfg, apiKey: e.target.value })} /></L>
+            <L label="Smart Checkout — Client ID" full><input className="inp" value={posCfg.smartClientId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, smartClientId: e.target.value })} /></L>
+            <L label="Smart Checkout — Client Secret" full><input type="password" className="inp" value={posCfg.smartClientSecret ?? ''} onChange={(e) => setPosCfg({ ...posCfg, smartClientSecret: e.target.value })} /></L>
+            <L label="POS (Cloud Terminal) — Client ID" full><input className="inp" value={posCfg.posClientId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, posClientId: e.target.value })} /></L>
+            <L label="POS — Client Secret" full><input type="password" className="inp" value={posCfg.posClientSecret ?? ''} onChange={(e) => setPosCfg({ ...posCfg, posClientSecret: e.target.value })} /></L>
+            <L label="Terminal ID (φυσικό POS)"><input className="inp" value={posCfg.terminalId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, terminalId: e.target.value })} /></L>
+            <L label="Source code (προαιρ.)"><input className="inp" value={posCfg.sourceCode ?? ''} onChange={(e) => setPosCfg({ ...posCfg, sourceCode: e.target.value })} /></L>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button onClick={testPos} className="bg-blue-600 text-white px-4 py-1.5 rounded">Δοκιμή σύνδεσης</button>
+            <button onClick={testCheckout} className="bg-indigo-600 text-white px-4 py-1.5 rounded">Δοκιμή πληρωμής 1€</button>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">Αποθήκευσε πρώτα. «Δοκιμή σύνδεσης» = έλεγχος credentials (OAuth token). «Δοκιμή πληρωμής» ανοίγει σελίδα Viva για 1,00€ (demo).</p>
+        </div>
+      )}
+      <div><button onClick={savePos} className="mt-3 bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση POS</button></div>
+
+      <p className="text-sm text-gray-500 mt-4"><b>Πάροχος ηλεκτρονικής έκδοσης (RapidSign)</b> παραμένει στην καρτέλα «Εκτυπωτές» (δεμένος με τις φορολογικές ρυθμίσεις).</p>
+    </div>
+  );
 }
 
 /* ---------------- Επιχείρηση ---------------- */
@@ -74,27 +184,6 @@ function BusinessTab({ onSaved }: { onSaved?: () => void }) {
         ))}
       </div>
       <p className="text-xs text-gray-500 mt-1">Καθορίζει ποιες οθόνες έκδοσης εμφανίζονται (Έκδοση ή/και Θέσεις).</p>
-
-      <h3 className="font-semibold mt-5 mb-2">Αρίθμηση εισιτηρίων</h3>
-      <div className="flex gap-3 mb-2">
-        {([['unified', 'Ενιαία (ένας μετρητής για όλα)'], ['per_type', 'Ανά τύπο (πρόθεμα + δικός του μετρητής)']] as const).map(([val, lbl]) => (
-          <label key={val} className={`flex-1 border rounded-lg p-3 cursor-pointer ${v.numbering_mode === val ? 'ring-2 ring-slate-700 bg-slate-50' : ''}`}>
-            <input type="radio" name="numbering" className="mr-2" checked={v.numbering_mode === val} onChange={() => set('numbering_mode', val)} />
-            {lbl}
-          </label>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {v.numbering_mode === 'unified' && (
-          <L label="Επόμενος αριθμός (αρχή σειράς)"><input type="number" min={1} className="inp" value={v.serial_next ?? 1} onChange={(e) => set('serial_next', Number(e.target.value))} /></L>
-        )}
-        <L label="Ψηφία (zero-padding)"><input type="number" min={1} max={12} className="inp" value={v.serial_width ?? 6} onChange={(e) => set('serial_width', Number(e.target.value))} /></L>
-      </div>
-      <p className="text-xs text-gray-500 mt-1">
-        {v.numbering_mode === 'unified'
-          ? `Παράδειγμα επόμενου: ${String(v.serial_next ?? 1).padStart(Math.min(12, Math.max(1, v.serial_width ?? 6)), '0')}. Κάθε εισιτήριο (οποιουδήποτε τύπου) παίρνει τον επόμενο αριθμό.`
-          : 'Όρισε το πρόθεμα & την αρχή σε κάθε τύπο εισιτηρίου (καρτέλα «Τύποι Εισιτηρίων»), π.χ. Α000001, Β000001.'}
-      </p>
 
       <button onClick={save} className="mt-5 bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση</button>
 
@@ -175,14 +264,12 @@ function PrintersTab() {
   const [stations, setStations] = useState<Station[]>([]);
   const [editing, setEditing] = useState<Partial<Printer> | null>(null);
   const [prov, setProv] = useState<any>({ env: 'dev' });
-  const [posCfg, setPosCfg] = useState<any>({ env: 'demo' });
   const [msg, setMsg] = useState('');
 
   async function load() {
     const fc = await api.get<FiscalConfig>('/api/fiscal');
     setF(fc);
     try { setProv({ env: 'dev', ...(fc.config ? JSON.parse(fc.config) : {}) }); } catch { setProv({ env: 'dev' }); }
-    try { setPosCfg({ env: 'demo', ...(fc.pos_config ? JSON.parse(fc.pos_config) : {}) }); } catch { setPosCfg({ env: 'demo' }); }
     setPrinters(await api.get<Printer[]>('/api/printers'));
     setStations(await api.get<Station[]>('/api/stations'));
   }
@@ -190,20 +277,9 @@ function PrintersTab() {
 
   async function saveFiscal() {
     if (!f) return;
-    try { await api.put('/api/fiscal', { ...f, config: prov, pos_config: posCfg }); setMsg('✓ Αποθηκεύτηκε'); }
+    // Μόνο φορολογικά πεδία (το POS/Κάρτες μεταφέρθηκε στην καρτέλα «Online Ρυθμίσεις»).
+    try { await api.put('/api/fiscal', { issue_mode: f.issue_mode, legal_note: f.legal_note, export_folder: f.export_folder, provider: f.provider, config: prov }); setMsg('✓ Αποθηκεύτηκε'); }
     catch (e) { setMsg((e as Error).message); }
-  }
-  async function testPos() {
-    setMsg('Δοκιμή σύνδεσης POS…');
-    try { const r = await api.post<{ ok: boolean; error?: string }>('/api/pos/test', {}); setMsg(r.ok ? '✓ Σύνδεση Viva ΟΚ (token)' : '✗ ' + (r.error ?? 'Αποτυχία')); }
-    catch (e) { setMsg((e as Error).message); }
-  }
-  async function testCheckout() {
-    try {
-      const r = await api.post<{ checkoutUrl: string; orderCode: string }>('/api/pos/checkout', { amount: 1.0, merchantTrns: 'Δοκιμή', customerTrns: 'Δοκιμαστική πληρωμή' });
-      window.open(r.checkoutUrl, '_blank');
-      setMsg(`✓ Δημιουργήθηκε δοκιμαστική πληρωμή 1,00€ (orderCode ${r.orderCode}) — άνοιξε το checkout.`);
-    } catch (e) { setMsg((e as Error).message); }
   }
   async function testProvider() {
     setMsg('Δοκιμή σύνδεσης…');
@@ -357,41 +433,8 @@ function PrintersTab() {
               <p className="text-xs text-gray-500 mt-1">Πρώτα Αποθήκευση, μετά Δοκιμή. Η δοκιμή επαληθεύει τα credentials και τραβά τους τύπους παραστατικών/ΦΠΑ/πληρωμών (στην κονσόλα του server) για να ρυθμίσουμε τα mappings.</p>
             </div>
           )}
-          {/* ---- Σύνδεση POS / Κάρτες ---- */}
-          <h3 className="font-semibold mt-5 mb-2">Σύνδεση POS / Κάρτες</h3>
-          <L label="Πάροχος καρτών (POS)">
-            <select className="inp" value={f.pos_provider ?? 'none'} onChange={(e) => setF({ ...f, pos_provider: e.target.value as any })}>
-              <option value="none">Χωρίς σύνδεση POS</option>
-              <option value="viva">Viva Payments</option>
-            </select>
-          </L>
-          {f.pos_provider === 'viva' && (
-            <div className="border rounded p-3 bg-gray-50">
-              <div className="grid grid-cols-2 gap-3">
-                <L label="Περιβάλλον">
-                  <select className="inp" value={posCfg.env ?? 'demo'} onChange={(e) => setPosCfg({ ...posCfg, env: e.target.value })}>
-                    <option value="demo">Demo</option>
-                    <option value="prod">Production</option>
-                  </select>
-                </L>
-                <L label="Merchant ID"><input className="inp" value={posCfg.merchantId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, merchantId: e.target.value })} /></L>
-                <L label="API Key (για κατάσταση πληρωμής)"><input type="password" className="inp" value={posCfg.apiKey ?? ''} onChange={(e) => setPosCfg({ ...posCfg, apiKey: e.target.value })} /></L>
-                <L label="Smart Checkout — Client ID" full><input className="inp" value={posCfg.smartClientId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, smartClientId: e.target.value })} /></L>
-                <L label="Smart Checkout — Client Secret" full><input type="password" className="inp" value={posCfg.smartClientSecret ?? ''} onChange={(e) => setPosCfg({ ...posCfg, smartClientSecret: e.target.value })} /></L>
-                <L label="POS (Cloud Terminal) — Client ID" full><input className="inp" value={posCfg.posClientId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, posClientId: e.target.value })} /></L>
-                <L label="POS — Client Secret" full><input type="password" className="inp" value={posCfg.posClientSecret ?? ''} onChange={(e) => setPosCfg({ ...posCfg, posClientSecret: e.target.value })} /></L>
-                <L label="Terminal ID (φυσικό POS)"><input className="inp" value={posCfg.terminalId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, terminalId: e.target.value })} /></L>
-                <L label="Source code (προαιρ.)"><input className="inp" value={posCfg.sourceCode ?? ''} onChange={(e) => setPosCfg({ ...posCfg, sourceCode: e.target.value })} /></L>
-              </div>
-              <div className="flex gap-2 mt-3">
-                <button onClick={testPos} className="bg-blue-600 text-white px-4 py-1.5 rounded">Δοκιμή σύνδεσης</button>
-                <button onClick={testCheckout} className="bg-indigo-600 text-white px-4 py-1.5 rounded">Δοκιμή πληρωμής 1€ (Smart Checkout)</button>
-              </div>
-              <p className="text-xs text-gray-500 mt-1">Αποθήκευσε πρώτα. «Δοκιμή σύνδεσης» = έλεγχος credentials (OAuth token). «Δοκιμή πληρωμής» ανοίγει σελίδα Viva για 1,00€ (demo). Το φυσικό τερματικό (Cloud Terminal) ενεργοποιείται όταν υπάρχει terminalId & συσκευή.</p>
-            </div>
-          )}
-
           <div><button onClick={saveFiscal} className="mt-3 bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση</button></div>
+          <p className="text-xs text-gray-400 mt-2">Η «Σύνδεση POS / Κάρτες (Viva)» μεταφέρθηκε στην καρτέλα «Online Ρυθμίσεις».</p>
         </>
       )}
 
@@ -606,6 +649,50 @@ const blank = (): Partial<TicketType> => ({
 });
 const payText = (p?: string) => (p === 'cash' ? 'Μετρητά' : p === 'card' ? 'Κάρτα' : '— επιλογή —');
 
+/* Αρίθμηση εισιτηρίων (venue-level) — ζει στους Τύπους Εισιτηρίων. */
+function NumberingSection() {
+  const [v, setV] = useState<Venue | null>(null);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api.get<Venue>('/api/venue').then(setV).catch(() => {}); }, []);
+  if (!v) return null;
+  const set = (k: keyof Venue, val: any) => setV({ ...v, [k]: val });
+  async function save() {
+    try { await api.put('/api/venue', v); setMsg('✓ Αποθηκεύτηκε'); } catch (e) { setMsg((e as Error).message); }
+  }
+  return (
+    <div className="bg-white border rounded-lg p-4 mb-5">
+      <h3 className="font-semibold mb-2">Αρίθμηση εισιτηρίων</h3>
+      <Msg text={msg} />
+      <div className="flex gap-3 mb-2">
+        {([['unified', 'Ενιαία (ένας μετρητής για όλα)'], ['per_type', 'Ανά τύπο (πρόθεμα + δικός του μετρητής)']] as const).map(([val, lbl]) => (
+          <label key={val} className={`flex-1 border rounded-lg p-3 cursor-pointer ${v.numbering_mode === val ? 'ring-2 ring-slate-700 bg-slate-50' : ''}`}>
+            <input type="radio" name="numbering" className="mr-2" checked={v.numbering_mode === val} onChange={() => set('numbering_mode', val)} />
+            {lbl}
+          </label>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {v.numbering_mode === 'unified' && (
+          <L label="Επόμενος αριθμός (αρχή σειράς)"><input type="number" min={1} className="inp" value={v.serial_next ?? 1} onChange={(e) => set('serial_next', Number(e.target.value))} /></L>
+        )}
+        <L label="Ψηφία (zero-padding)"><input type="number" min={1} max={12} className="inp" value={v.serial_width ?? 6} onChange={(e) => set('serial_width', Number(e.target.value))} /></L>
+      </div>
+      <p className="text-xs text-gray-500 mt-1">
+        {v.numbering_mode === 'unified'
+          ? `Παράδειγμα επόμενου: ${String(v.serial_next ?? 1).padStart(Math.min(12, Math.max(1, v.serial_width ?? 6)), '0')}. Κάθε εισιτήριο παίρνει τον επόμενο αριθμό.`
+          : 'Όρισε το πρόθεμα & την αρχή σε κάθε τύπο εισιτηρίου παρακάτω, π.χ. Α000001, Β000001.'}
+      </p>
+      <h3 className="font-semibold mt-5 mb-2">Έλεγχος εισόδου (check-in)</h3>
+      <L label="Λεπτά πριν την έναρξη που ανοίγει η είσοδος (0 = χωρίς όριο)">
+        <input type="number" min={0} max={240} className="inp" value={v.checkin_window_min ?? 30}
+          onChange={(e) => set('checkin_window_min', Number(e.target.value))} />
+      </L>
+      <p className="text-xs text-gray-500 mt-1">Το check-in δέχεται εισιτήρια μόνο για το θέαμα που «τρέχει» τώρα — ανοίγει τόσα λεπτά πριν την έναρξη και κλείνει στη λήξη, ανεξαρτήτως αίθουσας.</p>
+      <button onClick={save} className="mt-3 bg-slate-800 text-white px-4 py-1.5 rounded text-sm">Αποθήκευση</button>
+    </div>
+  );
+}
+
 function TypesTab() {
   const [types, setTypes] = useState<TicketType[]>([]);
   const [editing, setEditing] = useState<Partial<TicketType> | null>(null);
@@ -700,6 +787,8 @@ function TypesTab() {
           </div>
         </div>
       )}
+
+      <div className="mt-6"><NumberingSection /></div>
     </div>
   );
 }

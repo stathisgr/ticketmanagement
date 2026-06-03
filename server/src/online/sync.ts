@@ -105,7 +105,7 @@ export async function pushPublication(showId: number, showDate: string, salesClo
 
   // 2) Τύποι εισιτηρίων (local_id = show_ticket_types.id)
   const stts = db.prepare('SELECT * FROM show_ticket_types WHERE show_id = ? ORDER BY sort_order, id').all(showId) as any[];
-  await upsert(c, 'ticket_types', 'local_id', stts.map((t) => ({
+  await upsert(c, 'ticket_types', 'show_id,local_id', stts.map((t) => ({
     local_id: t.id, show_id: cloudShowId, title: t.title,
     price_cents: euroToCents(t.price), vat_rate: t.vat_rate ?? 6, sort: t.sort_order ?? 0, enabled: true,
   })));

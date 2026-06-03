@@ -46,6 +46,8 @@ export function migrate(): void {
     'ALTER TABLE tickets ADD COLUMN checked_in_by INTEGER',
     "ALTER TABLE fiscal_config ADD COLUMN pos_provider TEXT NOT NULL DEFAULT 'none'",
     'ALTER TABLE fiscal_config ADD COLUMN pos_config TEXT',
+    // Παράθυρο check-in: λεπτά ΠΡΙΝ την έναρξη που ανοίγει η είσοδος (0 = χωρίς περιορισμό).
+    'ALTER TABLE venue ADD COLUMN checkin_window_min INTEGER NOT NULL DEFAULT 30',
     // Το παλιό unique index ήταν (show_id, seat_id) — το ανακατασκευάζουμε με show_date.
     'DROP INDEX IF EXISTS idx_tickets_seat_show',
   ];

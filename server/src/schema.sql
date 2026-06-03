@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS venue (
   default_printer_type TEXT NOT NULL DEFAULT 'escpos80',
   numbering_mode TEXT NOT NULL DEFAULT 'unified' CHECK (numbering_mode IN ('unified','per_type')),
   serial_next   INTEGER NOT NULL DEFAULT 1,   -- επόμενος αριθμός για ενιαία αρίθμηση
-  serial_width  INTEGER NOT NULL DEFAULT 6    -- πλήθος ψηφίων (zero-padded)
+  serial_width  INTEGER NOT NULL DEFAULT 6,   -- πλήθος ψηφίων (zero-padded)
+  checkin_window_min INTEGER NOT NULL DEFAULT 30  -- λεπτά πριν την έναρξη που ανοίγει το check-in (0=χωρίς όριο)
 );
 
 -- Χρήστες & ρόλοι

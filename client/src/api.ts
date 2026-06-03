@@ -51,6 +51,7 @@ export interface Venue {
   postal_code?: string; city?: string; phone?: string; email?: string; default_vat: number;
   pos_mode: 'serial' | 'halls' | 'both'; default_printer_type: 'escpos58' | 'escpos80' | 'zpl';
   numbering_mode: 'unified' | 'per_type'; serial_next: number; serial_width: number;
+  checkin_window_min?: number;
 }
 export interface FiscalConfig {
   id: number; mode: 'none' | 'cash_register_file' | 'e_invoicing';
