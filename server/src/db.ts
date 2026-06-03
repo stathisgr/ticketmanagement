@@ -101,6 +101,11 @@ function ensureDefaultUsers(): void {
     db.prepare(`INSERT INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, 'checker')`)
       .run('checker', bcrypt.hashSync('', 10), 'Ελεγκτής');
   }
+  // Εικονικός «πωλητής» web — οι online πωλήσεις χρεώνονται σε αυτόν (όχι login).
+  if (!db.prepare('SELECT 1 FROM users WHERE username = ?').get('web')) {
+    db.prepare(`INSERT INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, 'cashier')`)
+      .run('web', bcrypt.hashSync(Math.random().toString(36), 10), 'Web (online)');
+  }
   // Προεπιλεγμένος πελάτης λιανικής (ανώνυμη ΑΠΥ).
   if (!db.prepare('SELECT 1 FROM customers WHERE is_default = 1').get()) {
     db.prepare(`INSERT INTO customers (full_name, is_default) VALUES ('ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ', 1)`).run();

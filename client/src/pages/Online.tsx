@@ -64,8 +64,8 @@ export default function Online() {
   async function pull() {
     setBusy(true); setError(''); setMsg('');
     try {
-      const r = await api.post<{ pulled: number }>('/api/online/pull', {});
-      setMsg(`Συγχρονισμός ολοκληρώθηκε — ${r.pulled} νέες online-πουλημένες θέσεις.`);
+      const r = await api.post<{ pulled: number; importedSales: number }>('/api/online/pull', {});
+      setMsg(`Συγχρονισμός ολοκληρώθηκε — ${r.importedSales} online πωλήσεις εισήχθησαν, ${r.pulled} θέσεις.`);
       reload();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }

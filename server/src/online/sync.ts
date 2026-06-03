@@ -164,10 +164,11 @@ export async function unpublish(pubId: number): Promise<void> {
  * Κατέβασμα online-πουλημένων θέσεων → τοπικός πίνακας online_sold_seats,
  * ώστε ο ταμίας να τις βλέπει πιασμένες. Επιστρέφει πλήθος νέων.
  */
-export async function pull(): Promise<{ pulled: number; perShow: Record<number, number> }> {
+export async function pull(): Promise<{ pulled: number; importedSales: number; perShow: Record<number, number> }> {
   const c = cfg();
   const pubs = db.prepare('SELECT * FROM online_publications WHERE enabled = 1 AND cloud_show_id IS NOT NULL').all() as any[];
-  let pulled = 0; const perShow: Record<number, number> = {};
+  let pulled = 0; let importedSales = 0; const perShow: Record<number, number> = {};
+  const webId = (db.prepare("SELECT id FROM users WHERE username = 'web'").get() as any)?.id ?? null;
 
   for (const pub of pubs) {
     // (α) ΑΝΕΒΑΣΜΑ: θέσεις που πούλησε το ταμείο για αυτή την ημ/νία → sold(box_office) στο cloud.
@@ -195,7 +196,56 @@ export async function pull(): Promise<{ pulled: number; perShow: Record<number, 
       if ((info as any).changes) n++;
     }
     perShow[pub.show_id] = n; pulled += n;
+
+    // (γ) ΕΙΣΑΓΩΓΗ πληρωμένων online παραγγελιών → τοπικές πωλήσεις + εισιτήρια (πωλητής «web»).
+    const cs = await rest(c, `seats?show_id=eq.${pub.cloud_show_id}&select=id,local_seat_id`, { method: 'GET', headers: headers(c) }) as any[];
+    const seatMap = new Map<number, number>(); for (const s of cs) if (s.local_seat_id != null) seatMap.set(s.id, s.local_seat_id);
+    const ct = await rest(c, `ticket_types?show_id=eq.${pub.cloud_show_id}&select=id,local_id`, { method: 'GET', headers: headers(c) }) as any[];
+    const typeMap = new Map<number, number>(); for (const t of ct) if (t.local_id != null) typeMap.set(t.id, t.local_id);
+
+    const tks = await rest(c,
+      `tickets?show_id=eq.${pub.cloud_show_id}&select=serial,serial_uid,price_cents,seat_id,ticket_type_id,order_id,orders!inner(id,customer_name,customer_email,customer_phone,status)&orders.status=eq.paid`,
+      { method: 'GET', headers: headers(c) }) as any[];
+    const byOrder = new Map<number, any[]>();
+    for (const r of tks) { if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []); byOrder.get(r.order_id)!.push(r); }
+
+    for (const [, items] of byOrder) {
+      if (db.prepare('SELECT 1 FROM tickets WHERE serial = ?').get(items[0].serial)) continue; // idempotent
+      const ord = items[0].orders ?? {};
+      let custId: number | null = null;
+      if (ord.customer_email) {
+        const ex = db.prepare('SELECT id FROM customers WHERE email = ?').get(ord.customer_email) as any;
+        custId = ex ? ex.id : Number(db.prepare('INSERT INTO customers (full_name, email, phone1) VALUES (?, ?, ?)')
+          .run(ord.customer_name ?? ord.customer_email, ord.customer_email, ord.customer_phone ?? null).lastInsertRowid);
+      }
+      const total = items.reduce((s, i) => s + i.price_cents / 100, 0);
+      const saleId = Number(db.prepare(
+        "INSERT INTO sales (datetime, user_id, customer_id, payment_method, total, vat_total, source) VALUES (datetime('now','localtime'), ?, ?, 'card', ?, 0, 'online')"
+      ).run(webId, custId, +total.toFixed(2)).lastInsertRowid);
+      let vatTotal = 0;
+      for (const it of items) {
+        const localSeat = seatMap.get(it.seat_id) ?? null;
+        const sttId = typeMap.get(it.ticket_type_id);
+        const stt = sttId ? db.prepare('SELECT * FROM show_ticket_types WHERE id = ?').get(sttId) as any : null;
+        const unit = it.price_cents / 100;
+        const vatRate = stt?.vat_rate ?? 6;
+        vatTotal += +((unit * vatRate) / (100 + vatRate)).toFixed(2);
+        const siId = Number(db.prepare(
+          `INSERT INTO sale_items (sale_id, ticket_type_id, show_id, show_date, seat_id, title, qty, unit_price, vat_rate, line_total)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`
+        ).run(saleId, stt?.ticket_type_id ?? null, pub.show_id, pub.show_date, localSeat, stt?.title ?? 'Εισιτήριο online', unit, vatRate, unit).lastInsertRowid);
+        try {
+          db.prepare(
+            `INSERT INTO tickets (sale_item_id, serial, qr_payload, show_id, show_date, seat_id, printed_at)
+             VALUES (?, ?, ?, ?, ?, ?, datetime('now','localtime'))`
+          ).run(siId, it.serial, it.serial_uid, pub.show_id, pub.show_date, localSeat);
+        } catch { /* θέση ήδη πουλημένη τοπικά ή διπλό serial — αγνόησε */ }
+      }
+      db.prepare('UPDATE sales SET vat_total = ? WHERE id = ?').run(+vatTotal.toFixed(2), saleId);
+      importedSales++;
+    }
+
     db.prepare("UPDATE online_publications SET last_pull_at = datetime('now','localtime') WHERE id = ?").run(pub.id);
   }
-  return { pulled, perShow };
+  return { pulled, importedSales, perShow };
 }

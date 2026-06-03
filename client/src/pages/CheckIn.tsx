@@ -39,7 +39,7 @@ export default function CheckIn() {
 
   async function syncCloud() {
     setBusy(true);
-    try { const r = await api.post<{ pulled: number }>('/api/online/pull', {}); setRes({ status: 'ok', title: `Συγχρονισμός Cloud: ${r.pulled} νέες θέσεις` } as Result); refresh(); }
+    try { const r = await api.post<{ pulled: number; importedSales: number }>('/api/online/pull', {}); setRes({ status: 'ok', title: `Συγχρονισμός Cloud: ${r.importedSales} online πωλήσεις, ${r.pulled} θέσεις` } as Result); refresh(); }
     catch (e) { setRes({ status: 'not_found', code: (e as Error).message } as Result); }
     finally { setBusy(false); }
   }
