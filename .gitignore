@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.log
+.env
+.DS_Store
+# Local SQLite database & generated data
+data/*.db
+data/*.db-*
+server/data/*.db
+server/data/*.db-*
+# Fiscal export spool (ASCII receipts for cash register agent)
+spool/
+# Database backups
+backups/
+
+# Vendor reference PDFs (large / proprietary)
+*.pdf
+
+# Scratch
+online/qr.txt

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Εισιτήριο — ΔΗΜΟΤΙΚΟ ΘΕΑΤΡΟ</title>
+<style>
+  :root{ --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --brand:#7c2d12; --bg:#f3f4f6; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans",sans-serif;color:var(--ink);padding:16px}
+  .ticket{max-width:420px;margin:0 auto;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+  .top{background:var(--brand);color:#fff;padding:20px 22px}
+  .top .venue{font-size:13px;letter-spacing:.08em;text-transform:uppercase;opacity:.9}
+  .top .show{font-size:24px;font-weight:800;line-height:1.15;margin-top:6px}
+  .top .sub{font-size:14px;opacity:.92;margin-top:4px}
+  .body{padding:20px 22px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+  .cell .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .cell .val{font-size:17px;font-weight:700;margin-top:2px}
+  .qrwrap{text-align:center;padding:16px;border:1px dashed var(--line);border-radius:14px;background:#fafafa}
+  .qrwrap img{width:200px;height:200px;display:block;margin:0 auto}
+  .serial{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;letter-spacing:.05em;margin-top:10px;font-weight:700}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .perf{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--line);margin-top:18px;padding-top:14px}
+  .perf .price{font-size:22px;font-weight:800}
+  .legal{font-size:11px;color:var(--muted);text-align:center;padding:14px 22px;border-top:1px solid var(--line)}
+  .stub{background:var(--brand);height:8px}
+</style>
+</head>
+<body>
+  <div class="ticket">
+    <div class="top">
+      <div class="venue">ΔΗΜΟΤΙΚΟ ΘΕΑΤΡΟ</div>
+      <div class="show">Αντιγόνη</div>
+      <div class="sub">Σοφοκλέους — Θερινή παράσταση</div>
+    </div>
+    <div class="body">
+      <div class="grid">
+        <div class="cell"><div class="k">Ημερομηνία</div><div class="val">Παρασκευή 10/7/2026</div></div>
+        <div class="cell"><div class="k">Ώρα</div><div class="val">21:00</div></div>
+        <div class="cell"><div class="k">Θέση</div><div class="val">Πλατεία Α — Σειρά 4, Θέση 12</div></div>
+        <div class="cell"><div class="k">Τύπος</div><div class="val">Κανονικό</div></div>
+      </div>
+      <div class="qrwrap">
+        <img alt="QR εισόδου" src="data:image/png;base64,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">
+        <div class="serial">TKT-2026-000123</div>
+        <div class="hint">Δείξτε αυτό το QR στην είσοδο</div>
+      </div>
+      <div class="perf">
+        <div>
+          <div class="k" style="font-size:11px;text-transform:uppercase;color:var(--muted)">Κάτοχος</div>
+          <div style="font-weight:700">Ευστάθιος Π.</div>
+        </div>
+        <div class="price">15,00 €</div>
+      </div>
+    </div>
+    <div class="legal">Δεν αποτελεί φορολογικό παραστατικό · alphait.gr</div>
+    <div class="stub"></div>
+  </div>
+</body>
+</html>
