@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { db, tx, localDate } from '../db.js';
-import { authenticate, type JwtUser } from '../auth.js';
+import { authenticate, requireManager, type JwtUser } from '../auth.js';
 import { renderTicket, type PrinterType } from '../print/index.js';
 import type { TicketContext } from '../print/template.js';
 import { exportAsciiReceipt } from '../fiscal/ascii.js';
@@ -149,7 +149,7 @@ export default async function salesRoutes(app: FastifyInstance) {
           const showDate = body.show_date ?? (show?.valid_from ?? show?.starts_at ?? '').slice(0, 10);
           const qty = Math.max(1, Number(item.qty) || 1);
           if (show?.capacity > 0) {
-            const sold = (db.prepare('SELECT COUNT(*) AS c FROM tickets WHERE show_id = ? AND show_date = ?').get(stt.show_id, showDate) as any).c;
+            const sold = (db.prepare('SELECT COUNT(*) AS c FROM tickets WHERE show_id = ? AND show_date = ? AND cancelled_at IS NULL').get(stt.show_id, showDate) as any).c;
             if (sold + qty > show.capacity) throw new Error(`Υπέρβαση χωρητικότητας event (${show.capacity}).`);
           }
           const seatTt = stt.ticket_type_id ? db.prepare('SELECT * FROM ticket_types WHERE id = ?').get(stt.ticket_type_id) : null;
@@ -385,6 +385,7 @@ export default async function salesRoutes(app: FastifyInstance) {
     const params: (string | number)[] = [fromDate, toDate];
     let sql =
       `SELECT t.id, t.serial, t.show_date, t.printed_at, t.checked_in_at,
+              t.cancelled_at, t.cancel_reason,
               s.datetime, s.payment_method, s.id AS sale_id,
               si.title, si.unit_price,
               seat.display_name AS seat, sh.title AS show_title,
@@ -482,6 +483,41 @@ export default async function salesRoutes(app: FastifyInstance) {
       } catch (e) { dispatchInfo = (e as Error).message; }
     }
     return { ...rendered, reprint: true, dispatched, dispatchInfo, printTicket: !dispatched };
+  });
+
+  // Ακύρωση εισιτηρίου (ΜΟΝΟ Διαχειριστής). Το εισιτήριο ΔΕΝ διαγράφεται:
+  // διατηρείται ο αριθμός + σήμανση/αιτία/χρόνος/χρήστης (audit). Γίνεται αντιλογισμός
+  // (επιστροφή) στο ταμείο και αφαιρείται η αξία από έσοδα/ΦΠΑ.
+  app.post('/api/tickets/:id/cancel', { preHandler: requireManager }, async (req, reply) => {
+    const id = Number((req.params as any).id);
+    const user = req.user as JwtUser;
+    const reason = String(((req.body ?? {}) as any).reason ?? '').trim();
+    if (!reason) return reply.code(400).send({ error: 'Απαιτείται αιτία ακύρωσης' });
+    const t = db.prepare(
+      `SELECT t.id, t.serial, t.cancelled_at, si.id AS si_id, si.unit_price, si.vat_rate,
+              s.id AS sale_id, s.payment_method
+       FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id JOIN sales s ON s.id = si.sale_id
+       WHERE t.id = ?`
+    ).get(id) as any;
+    if (!t) return reply.code(404).send({ error: 'Δεν βρέθηκε εισιτήριο' });
+    if (t.cancelled_at) return reply.code(409).send({ error: 'Το εισιτήριο είναι ήδη ακυρωμένο' });
+    const unit = +Number(t.unit_price || 0).toFixed(2);
+    const vat = +((unit * (t.vat_rate || 0)) / (100 + (t.vat_rate || 0))).toFixed(2);
+    tx(() => {
+      db.prepare("UPDATE tickets SET cancelled_at = datetime('now','localtime'), cancelled_by = ?, cancel_reason = ? WHERE id = ?")
+        .run(user.id, reason, id);
+      // Καθαρή εικόνα εσόδων: μειώνεται το παραστατικό κατά την αξία του εισιτηρίου.
+      db.prepare('UPDATE sale_items SET qty = MAX(0, qty - 1), line_total = ROUND(MAX(0, line_total - ?), 2) WHERE id = ?')
+        .run(unit, t.si_id);
+      db.prepare('UPDATE sales SET total = ROUND(MAX(0, total - ?), 2), vat_total = ROUND(MAX(0, vat_total - ?), 2) WHERE id = ?')
+        .run(unit, vat, t.sale_id);
+      // Αντιλογισμός (επιστροφή) στο ταμείο — αρνητική κίνηση.
+      db.prepare(
+        `INSERT INTO till_movements (datetime, user_id, sale_id, credit, method, reason)
+         VALUES (datetime('now','localtime'), ?, ?, ?, ?, ?)`
+      ).run(user.id, t.sale_id, -unit, t.payment_method, `Ακύρωση εισιτηρίου ${t.serial}`);
+    });
+    return { ok: true, serial: t.serial, refund: unit };
   });
 }
 

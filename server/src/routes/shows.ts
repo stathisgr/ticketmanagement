@@ -51,7 +51,7 @@ export default async function showRoutes(app: FastifyInstance) {
     const ticketTypesAll = db.prepare('SELECT * FROM show_ticket_types WHERE show_id = ? ORDER BY sort_order, id').all(id);
     // Event χωρίς θέσεις: επιστρέφουμε μετρητή πωλήσεων + χωρητικότητα (καμία θέση).
     if (show.seating_mode === 'general') {
-      const sold = (db.prepare('SELECT COUNT(*) AS c FROM tickets WHERE show_id = ? AND show_date = ?').get(id, showDate) as any).c;
+      const sold = (db.prepare('SELECT COUNT(*) AS c FROM tickets WHERE show_id = ? AND show_date = ? AND cancelled_at IS NULL').get(id, showDate) as any).c;
       const remaining = show.capacity > 0 ? Math.max(0, show.capacity - sold) : null; // null = απεριόριστο
       return { show, seats: [], ticketTypes: ticketTypesAll, show_date: showDate, general: true, sold, capacity: show.capacity, remaining };
     }
@@ -61,7 +61,7 @@ export default async function showRoutes(app: FastifyInstance) {
                 CASE WHEN t.id IS NULL AND o.id IS NULL THEN 0 ELSE 1 END AS sold,
                 CASE WHEN o.id IS NULL THEN 0 ELSE 1 END AS online_sold
          FROM seats s
-         LEFT JOIN tickets t ON t.seat_id = s.id AND t.show_id = ? AND t.show_date = ?
+         LEFT JOIN tickets t ON t.seat_id = s.id AND t.show_id = ? AND t.show_date = ? AND t.cancelled_at IS NULL
          LEFT JOIN online_sold_seats o ON o.seat_id = s.id AND o.show_id = ? AND o.show_date = ?
          WHERE s.hall_id = ? ORDER BY s.y, s.x`
       )

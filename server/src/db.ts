@@ -53,6 +53,10 @@ export function migrate(): void {
     'ALTER TABLE shows ADD COLUMN capacity INTEGER NOT NULL DEFAULT 0',
     // Το παλιό unique index ήταν (show_id, seat_id) — το ανακατασκευάζουμε με show_date.
     'DROP INDEX IF EXISTS idx_tickets_seat_show',
+    // Ακύρωση εισιτηρίου (audit: ποιος/πότε/γιατί) — το εισιτήριο ΔΕΝ διαγράφεται.
+    'ALTER TABLE tickets ADD COLUMN cancelled_at TEXT',
+    'ALTER TABLE tickets ADD COLUMN cancelled_by INTEGER',
+    'ALTER TABLE tickets ADD COLUMN cancel_reason TEXT',
   ];
   for (const stmt of preMigrations) {
     try { db.exec(stmt); } catch { /* ήδη εφαρμοσμένο ή ο πίνακας δεν υπάρχει */ }

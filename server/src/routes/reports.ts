@@ -116,6 +116,87 @@ export default async function reportRoutes(app: FastifyInstance) {
       .all(from, to);
   });
 
+  // ΦΟΡΟΛΟΓΙΚΗ ΑΝΑΦΟΡΑ — βάσει ΗΜΕΡΟΜΗΝΙΑΣ ΕΚΔΗΛΩΣΗΣ (όχι έκδοσης/πώλησης).
+  // Το έσοδο/ΦΠΑ αναγνωρίζεται στον χρόνο τέλεσης. Για εισιτήρια χωρίς θέαμα (λιανική POS)
+  // ως ημ. αναφοράς λαμβάνεται η ημ. πώλησης. Τα ΑΚΥΡΩΘΕΝΤΑ ΕΞΑΙΡΟΥΝΤΑΙ από έσοδα/ΦΠΑ
+  // αλλά εμφανίζονται ως πλήθος. Ανάλυση ΦΠΑ ανά συντελεστή + ανά εκδήλωση + αδιάθετα.
+  app.get('/api/reports/fiscal', { preHandler: requireManager }, async (req) => {
+    const [from, to] = range(req);
+    const refDate = "COALESCE(t.show_date, date(s.datetime))";
+    const valNet = "si.unit_price"; // αξία ανά εισιτήριο (συμπ. ΦΠΑ)
+    const vatExpr = "si.unit_price * si.vat_rate / (100 + si.vat_rate)";
+    const base =
+      `FROM tickets t
+       JOIN sale_items si ON si.id = t.sale_item_id
+       JOIN sales s ON s.id = si.sale_id
+       LEFT JOIN shows sh ON sh.id = t.show_id
+       WHERE ${refDate} BETWEEN ? AND ?`;
+
+    const totals = db.prepare(
+      `SELECT SUM(CASE WHEN t.cancelled_at IS NULL THEN 1 ELSE 0 END) AS issued,
+              SUM(CASE WHEN t.cancelled_at IS NOT NULL THEN 1 ELSE 0 END) AS cancelled,
+              ROUND(COALESCE(SUM(CASE WHEN t.cancelled_at IS NULL THEN ${valNet} ELSE 0 END),0),2) AS gross,
+              ROUND(COALESCE(SUM(CASE WHEN t.cancelled_at IS NULL THEN ${vatExpr} ELSE 0 END),0),2) AS vat
+       ${base}`
+    ).get(from, to) as any;
+
+    const vatByRate = (db.prepare(
+      `SELECT si.vat_rate AS rate,
+              SUM(CASE WHEN t.cancelled_at IS NULL THEN 1 ELSE 0 END) AS qty,
+              ROUND(COALESCE(SUM(CASE WHEN t.cancelled_at IS NULL THEN ${valNet} ELSE 0 END),0),2) AS gross,
+              ROUND(COALESCE(SUM(CASE WHEN t.cancelled_at IS NULL THEN ${vatExpr} ELSE 0 END),0),2) AS vat
+       ${base} GROUP BY si.vat_rate ORDER BY si.vat_rate`
+    ).all(from, to) as any[]).map((r) => ({
+      rate: Number(r.rate), qty: Number(r.qty),
+      gross: +Number(r.gross).toFixed(2), vat: +Number(r.vat).toFixed(2),
+      net: +(Number(r.gross) - Number(r.vat)).toFixed(2),
+    }));
+
+    const rows = db.prepare(
+      `SELECT ${refDate} AS event_date, t.show_id AS show_id,
+              COALESCE(sh.title, '— Λιανική / POS —') AS show_title,
+              sh.seating_mode AS seating_mode, sh.capacity AS gen_cap, sh.hall_id AS hall_id,
+              SUM(CASE WHEN t.cancelled_at IS NULL THEN 1 ELSE 0 END) AS issued,
+              SUM(CASE WHEN t.cancelled_at IS NOT NULL THEN 1 ELSE 0 END) AS cancelled,
+              ROUND(COALESCE(SUM(CASE WHEN t.cancelled_at IS NULL THEN ${valNet} ELSE 0 END),0),2) AS gross,
+              ROUND(COALESCE(SUM(CASE WHEN t.cancelled_at IS NULL THEN ${vatExpr} ELSE 0 END),0),2) AS vat
+       ${base}
+       GROUP BY event_date, t.show_id ORDER BY event_date, show_title`
+    ).all(from, to) as any[];
+
+    const seatCountCache = new Map<number, number>();
+    const seatCount = (hallId: number): number => {
+      if (!seatCountCache.has(hallId)) {
+        const c = (db.prepare("SELECT COUNT(*) AS c FROM seats WHERE hall_id = ? AND kind = 'seat'").get(hallId) as any).c;
+        seatCountCache.set(hallId, Number(c) || 0);
+      }
+      return seatCountCache.get(hallId)!;
+    };
+    const byEvent = rows.map((r) => {
+      let capacity: number | null = null;
+      if (r.seating_mode === 'seated' && r.hall_id) capacity = seatCount(r.hall_id);
+      else if (r.seating_mode === 'general') capacity = r.gen_cap > 0 ? Number(r.gen_cap) : null;
+      const unsold = capacity != null ? Math.max(0, capacity - Number(r.issued)) : null;
+      return {
+        event_date: r.event_date, show_title: r.show_title,
+        issued: Number(r.issued), cancelled: Number(r.cancelled),
+        gross: +Number(r.gross).toFixed(2), vat: +Number(r.vat).toFixed(2),
+        net: +(Number(r.gross) - Number(r.vat)).toFixed(2),
+        capacity, unsold,
+      };
+    });
+
+    return {
+      from, to,
+      issued: Number(totals.issued || 0),
+      cancelled: Number(totals.cancelled || 0),
+      gross: +Number(totals.gross || 0).toFixed(2),
+      vat: +Number(totals.vat || 0).toFixed(2),
+      net: +(Number(totals.gross || 0) - Number(totals.vat || 0)).toFixed(2),
+      vatByRate, byEvent,
+    };
+  });
+
   // Ανά τύπο εισιτηρίου
   app.get('/api/reports/by-type', { preHandler: requireManager }, async (req) => {
     const [from, to] = range(req);

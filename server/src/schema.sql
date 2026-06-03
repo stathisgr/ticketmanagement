@@ -156,7 +156,10 @@ CREATE TABLE IF NOT EXISTS tickets (
   printed_at      TEXT,
   reprinted_count INTEGER NOT NULL DEFAULT 0,
   checked_in_at   TEXT,           -- έλεγχος εισόδου (check-in)
-  checked_in_by   INTEGER REFERENCES users(id)
+  checked_in_by   INTEGER REFERENCES users(id),
+  cancelled_at    TEXT,           -- ακύρωση εισιτηρίου (audit trail)
+  cancelled_by    INTEGER REFERENCES users(id),
+  cancel_reason   TEXT
 );
 
 -- Ταμειακές κινήσεις (ταμείο)
@@ -238,7 +241,7 @@ CREATE INDEX IF NOT EXISTS idx_stt_show ON show_ticket_types(show_id);
 
 -- Προστασία διπλο-κράτησης: μία θέση ανά θέαμα ΑΝΑ ΗΜΕΡΟΜΗΝΙΑ
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_seat_show
-  ON tickets(show_id, show_date, seat_id) WHERE seat_id IS NOT NULL;
+  ON tickets(show_id, show_date, seat_id) WHERE seat_id IS NOT NULL AND cancelled_at IS NULL;
 
 -- ===== ONLINE (Supabase) σύνδεση =====
 -- Ρυθμίσεις σύνδεσης με το cloud (singleton id=1). service_key = service_role (μυστικό, μόνο τοπικά).

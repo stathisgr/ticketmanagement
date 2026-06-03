@@ -51,6 +51,7 @@ export default async function checkinRoutes(app: FastifyInstance) {
     const t = findTicket(code ?? '');
     if (!t) return reply.send({ status: 'not_found', code });
     const info = { id: t.id, serial: t.serial, title: t.title, seat: t.seat, show: t.show_title, show_date: t.show_date };
+    if (t.cancelled_at) return reply.send({ status: 'cancelled', at: t.cancelled_at, message: t.cancel_reason || 'Ακυρωμένο εισιτήριο', ...info });
     if (t.checked_in_at) return reply.send({ status: 'already', at: t.checked_in_at, ...info });
     const winErr = timeWindowError(t);
     if (winErr) return reply.send({ status: 'wrong_time', message: winErr, ...info });
@@ -65,7 +66,7 @@ export default async function checkinRoutes(app: FastifyInstance) {
       const d = date ?? localDate();
       const row = db.prepare(
         `SELECT COUNT(*) AS issued, SUM(CASE WHEN checked_in_at IS NOT NULL THEN 1 ELSE 0 END) AS entered
-         FROM tickets WHERE show_id = ? AND show_date = ?`
+         FROM tickets WHERE show_id = ? AND show_date = ? AND cancelled_at IS NULL`
       ).get(Number(show_id), d) as any;
       return { scope: 'show', show_id: Number(show_id), date: d, issued: row.issued ?? 0, entered: row.entered ?? 0 };
     }
@@ -73,7 +74,7 @@ export default async function checkinRoutes(app: FastifyInstance) {
     const row = db.prepare(
       `SELECT COUNT(*) AS issued, SUM(CASE WHEN t.checked_in_at IS NOT NULL THEN 1 ELSE 0 END) AS entered
        FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id JOIN sales s ON s.id = si.sale_id
-       WHERE date(s.datetime) = ?`
+       WHERE date(s.datetime) = ? AND t.cancelled_at IS NULL`
     ).get(d) as any;
     return { scope: 'day', date: d, issued: row.issued ?? 0, entered: row.entered ?? 0 };
   });

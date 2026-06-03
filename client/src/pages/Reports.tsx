@@ -11,6 +11,12 @@ interface Summary {
   bySource: Record<'pos' | 'hall', { gross: number; qty: number }>;
   byChannel?: Record<'local' | 'online', { sales: number; gross: number; qty: number }>;
 }
+interface VatRateRow { rate: number; qty: number; gross: number; vat: number; net: number; }
+interface FiscalEventRow { event_date: string; show_title: string; issued: number; cancelled: number; gross: number; vat: number; net: number; capacity: number | null; unsold: number | null; }
+interface Fiscal {
+  from: string; to: string; issued: number; cancelled: number; gross: number; vat: number; net: number;
+  vatByRate: VatRateRow[]; byEvent: FiscalEventRow[];
+}
 interface DayRow { day: string; sales: number; gross: number; }
 interface ShowRow { id: number; title: string; start_time?: string; hall_name: string; qty: number; gross: number; }
 interface HallRow { hall_name: string; qty: number; gross: number; }
@@ -24,12 +30,18 @@ export default function Reports() {
   const [byShow, setByShow] = useState<ShowRow[]>([]);
   const [byHall, setByHall] = useState<HallRow[]>([]);
   const [byType, setByType] = useState<TypeRow[]>([]);
+  const [fiscal, setFiscal] = useState<Fiscal | null>(null);
+  const [tab, setTab] = useState<'general' | 'fiscal'>('general');
   const [error, setError] = useState('');
 
   async function load() {
     setError('');
     const qs = `from=${from}&to=${to}`;
     try {
+      if (tab === 'fiscal') {
+        setFiscal(await api.get<Fiscal>(`/api/reports/fiscal?${qs}`));
+        return;
+      }
       const [s, d, sh, h, t] = await Promise.all([
         api.get<Summary>(`/api/reports/summary?${qs}`),
         api.get<DayRow[]>(`/api/reports/by-day?${qs}`),
@@ -40,7 +52,7 @@ export default function Reports() {
       setSum(s); setDays(d); setByShow(sh); setByHall(h); setByType(t);
     } catch (e) { setError((e as Error).message); }
   }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab]);
 
   function csv(name: string, header: string[], rows: (string | number)[][]) {
     const lines = [header.join(';'), ...rows.map((r) => r.join(';'))];
@@ -60,9 +72,17 @@ export default function Reports() {
         <label className="text-sm">Έως<input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="block border rounded px-2 py-1" /></label>
         <button onClick={load} className="bg-slate-800 text-white px-4 py-1.5 rounded">Εμφάνιση</button>
       </div>
+
+      <div className="flex gap-1 border-b mb-4">
+        {([['general', 'Γενικά (ανά ημ. πώλησης)'], ['fiscal', 'Φορολογική (ανά ημ. εκδήλωσης)']] as const).map(([id, lbl]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`px-4 py-2 -mb-px border-b-2 ${tab === id ? 'border-slate-800 font-semibold' : 'border-transparent text-gray-500'}`}>{lbl}</button>
+        ))}
+      </div>
+
       {error && <div className="bg-red-100 text-red-700 p-2 rounded mb-2">{error}</div>}
 
-      {sum && (
+      {tab === 'general' && sum && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
             <Card label="Τζίρος" value={`${sum.gross.toFixed(2)} €`} sub={`${sum.sales} πωλήσεις`} color="bg-slate-800 text-white" />
@@ -116,6 +136,40 @@ export default function Reports() {
             head={['Εισιτήριο', 'Τεμάχια', 'Τζίρος']}
             rows={byType.map((r) => [r.title, String(r.qty), `${r.gross.toFixed(2)} €`])}
           />
+        </>
+      )}
+
+      {tab === 'fiscal' && fiscal && (
+        <>
+          <p className="text-xs text-gray-500 mb-3">
+            Τα ποσά αναγνωρίζονται στη <b>ημερομηνία εκδήλωσης</b> (όχι έκδοσης/πώλησης). Τα <b>ακυρωθέντα</b> δεν προσμετρώνται σε έσοδα/ΦΠΑ. Εισιτήρια χωρίς θέαμα (λιανική) λαμβάνονται στην ημ. πώλησης.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+            <Card label="Καθαρός τζίρος" value={`${fiscal.gross.toFixed(2)} €`} sub={`${fiscal.issued} εισιτήρια`} color="bg-slate-800 text-white" />
+            <Card label="ΦΠΑ" value={`${fiscal.vat.toFixed(2)} €`} color="bg-gray-100" />
+            <Card label="Καθαρή αξία" value={`${fiscal.net.toFixed(2)} €`} color="bg-gray-100" />
+            <Card label="Εκδοθέντα" value={String(fiscal.issued)} color="bg-emerald-700 text-white" />
+            <Card label="Ακυρωθέντα" value={String(fiscal.cancelled)} color="bg-red-100" />
+          </div>
+
+          <ReportTable
+            title="ΦΠΑ ανά συντελεστή"
+            onCsv={() => csv('fpa_ana_syntelesti', ['Συντελεστής %', 'Τεμάχια', 'Καθαρή αξία', 'ΦΠΑ', 'Σύνολο'],
+              fiscal.vatByRate.map((r) => [r.rate, r.qty, r.net.toFixed(2), r.vat.toFixed(2), r.gross.toFixed(2)]))}
+            head={['Συντελεστής', 'Τεμάχια', 'Καθαρή αξία', 'ΦΠΑ', 'Σύνολο']}
+            rows={fiscal.vatByRate.map((r) => [`${r.rate}%`, String(r.qty), `${r.net.toFixed(2)} €`, `${r.vat.toFixed(2)} €`, `${r.gross.toFixed(2)} €`])}
+          />
+
+          <ReportTable
+            title="Ανά εκδήλωση / ημερομηνία"
+            onCsv={() => csv('ana_ekdilosi', ['Ημ. εκδήλωσης', 'Εκδήλωση', 'Εκδοθέντα', 'Ακυρωθέντα', 'Χωρητικότητα', 'Αδιάθετα', 'Καθαρή αξία', 'ΦΠΑ', 'Σύνολο'],
+              fiscal.byEvent.map((r) => [r.event_date, r.show_title, r.issued, r.cancelled, r.capacity ?? '', r.unsold ?? '', r.net.toFixed(2), r.vat.toFixed(2), r.gross.toFixed(2)]))}
+            head={['Ημ. εκδήλωσης', 'Εκδήλωση', 'Εκδοθ.', 'Ακυρ.', 'Χωρητ.', 'Αδιάθ.', 'ΦΠΑ', 'Σύνολο']}
+            rows={fiscal.byEvent.map((r) => [r.event_date, r.show_title, String(r.issued), String(r.cancelled),
+              r.capacity != null ? String(r.capacity) : '—', r.unsold != null ? String(r.unsold) : '—',
+              `${r.vat.toFixed(2)} €`, `${r.gross.toFixed(2)} €`])}
+          />
+          {fiscal.byEvent.length === 0 && <div className="text-gray-400 text-sm">Καμία εγγραφή στο διάστημα.</div>}
         </>
       )}
     </div>

@@ -7,6 +7,7 @@ const today = () => { const d = new Date(); const p = (n: number) => String(n).p
 interface TicketRow {
   id: number; serial: string; datetime: string; payment_method: string;
   title: string; unit_price: number; seat?: string; show_title?: string; username?: string; show_date?: string; checked_in_at?: string | null;
+  cancelled_at?: string | null; cancel_reason?: string | null;
 }
 
 export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker' }) {
@@ -39,6 +40,17 @@ export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker'
   function refresh() { tab === 'summary' ? loadSummary() : loadTickets(); }
 
   useEffect(() => { loadSummary(); loadTickets(); /* eslint-disable-next-line */ }, []);
+
+  async function cancelTicket(t: TicketRow) {
+    const reason = prompt(`Ακύρωση εισιτηρίου ${t.serial} (${t.title}).\nΗ αξία επιστρέφεται (αντιλογισμός) και δεν μετράει ως έσοδο.\n\nΑιτία ακύρωσης:`);
+    if (reason == null) return;
+    if (!reason.trim()) { setError('Απαιτείται αιτία ακύρωσης'); return; }
+    try {
+      const r = await api.post<{ refund: number }>(`/api/tickets/${t.id}/cancel`, { reason: reason.trim() });
+      setError(`✓ Ακυρώθηκε το ${t.serial} — επιστροφή ${Number(r.refund).toFixed(2)} €`);
+      loadTickets(); loadSummary();
+    } catch (e) { setError((e as Error).message); }
+  }
 
   async function reprint(id: number) {
     try {
@@ -119,9 +131,11 @@ export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker'
           </tr></thead>
           <tbody>
             {tickets.map((t) => (
-              <tr key={t.id} className="border-t">
+              <tr key={t.id} className={`border-t ${t.cancelled_at ? 'bg-red-50 text-gray-400 line-through' : ''}`}>
                 <td className="p-2">{(t.datetime ?? '').slice(11, 16)}</td>
-                <td className="p-2 font-mono">{t.serial}</td>
+                <td className="p-2 font-mono">{t.serial}
+                  {t.cancelled_at && <span className="ml-1 no-underline inline-block px-1.5 py-0.5 rounded bg-red-200 text-red-800 text-[10px] align-middle" title={t.cancel_reason ?? ''}>ΑΚΥΡΩΘΕΝ</span>}
+                </td>
                 <td className="p-2">{t.title}</td>
                 <td className="p-2 text-gray-600">{t.seat ? `${t.seat}` : ''}{t.show_title ? ` · ${t.show_title}` : ''}{t.show_date ? ` (${t.show_date})` : ''}</td>
                 <td className="p-2 text-right">{t.unit_price.toFixed(2)} €</td>
@@ -132,7 +146,11 @@ export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker'
                     : <span className="px-2 py-0.5 rounded bg-red-100 text-red-700">—</span>}
                 </td>
                 {isManager && <td className="p-2">{t.username}</td>}
-                <td className="p-2 text-right"><button onClick={() => reprint(t.id)} className="text-blue-600">Επανεκτύπωση</button></td>
+                <td className="p-2 text-right whitespace-nowrap no-underline">
+                  {!t.cancelled_at && <button onClick={() => reprint(t.id)} className="text-blue-600 mr-2">Επανεκτύπωση</button>}
+                  {isManager && !t.cancelled_at && <button onClick={() => cancelTicket(t)} className="text-red-600">Ακύρωση</button>}
+                  {t.cancelled_at && <span className="text-gray-400 text-xs">ακυρωμένο</span>}
+                </td>
               </tr>
             ))}
             {tickets.length === 0 && <tr><td colSpan={isManager ? 9 : 8} className="p-3 text-gray-400">Κανένα εισιτήριο.</td></tr>}
