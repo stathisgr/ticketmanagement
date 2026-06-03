@@ -55,9 +55,9 @@ export default function Online() {
   }
 
   async function unpublish(id: number) {
-    if (!confirm('Απόσυρση του θεάματος από το online;')) return;
-    setBusy(true); setError('');
-    try { await api.post('/api/online/unpublish', { id }); reload(); }
+    if (!confirm('Απόσυρση & ΔΙΑΓΡΑΦΗ του θεάματος από το online; (οι online πωλήσεις κατεβαίνουν πρώτα τοπικά)')) return;
+    setBusy(true); setError(''); setMsg('');
+    try { const r = await api.post<{ importedSales: number }>('/api/online/unpublish', { id }); setMsg(`Διαγράφηκε από το online${r.importedSales ? ` — εισήχθησαν ${r.importedSales} πωλήσεις τοπικά` : ''}.`); reload(); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
 

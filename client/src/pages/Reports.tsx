@@ -9,6 +9,7 @@ interface Summary {
   from: string; to: string; gross: number; vat: number; net: number; sales: number; tickets: number; avgPerSale: number;
   byMethod: Record<'cash' | 'card', { count: number; total: number }>;
   bySource: Record<'pos' | 'hall', { gross: number; qty: number }>;
+  byChannel?: Record<'local' | 'online', { sales: number; gross: number; qty: number }>;
 }
 interface DayRow { day: string; sales: number; gross: number; }
 interface ShowRow { id: number; title: string; start_time?: string; hall_name: string; qty: number; gross: number; }
@@ -68,6 +69,16 @@ export default function Reports() {
             <Card label="ΦΠΑ" value={`${sum.vat.toFixed(2)} €`} sub={`Καθαρό ${sum.net.toFixed(2)} €`} color="bg-gray-100" />
             <Card label="Εισιτήρια" value={String(sum.tickets)} sub={`Μ.Ο. ${sum.avgPerSale.toFixed(2)} €/πώληση`} color="bg-gray-100" />
             <Card label="Μετρητά / Κάρτα" value={`${sum.byMethod.cash.total.toFixed(0)} / ${sum.byMethod.card.total.toFixed(0)} €`} sub={`POS ${sum.bySource.pos.gross.toFixed(0)}€ · Αίθ. ${sum.bySource.hall.gross.toFixed(0)}€`} color="bg-gray-100" />
+            {sum.byChannel && (
+              <Card label="Online" value={`${sum.byChannel.online.gross.toFixed(2)} €`}
+                sub={`${sum.byChannel.online.qty} εισιτήρια · ${sum.byChannel.online.sales} πωλήσεις`}
+                color="bg-emerald-700 text-white" />
+            )}
+            {sum.byChannel && (
+              <Card label="Τοπικά (ταμείο)" value={`${sum.byChannel.local.gross.toFixed(2)} €`}
+                sub={`${sum.byChannel.local.qty} εισιτήρια · ${sum.byChannel.local.sales} πωλήσεις`}
+                color="bg-gray-100" />
+            )}
           </div>
 
           {/* Ημερήσιο γράφημα τζίρου */}

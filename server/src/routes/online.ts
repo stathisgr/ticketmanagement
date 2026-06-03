@@ -63,7 +63,7 @@ export default async function onlineRoutes(app: FastifyInstance) {
   app.post('/api/online/unpublish', { preHandler: requireManager }, async (req, reply) => {
     const b = req.body as { id?: number };
     if (!b.id) return reply.code(400).send({ error: 'id απαιτείται' });
-    try { await unpublish(b.id); return { ok: true }; }
+    try { const r = await unpublish(b.id); return { ok: true, ...r }; }
     catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
   });
 

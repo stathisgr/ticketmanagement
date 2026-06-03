@@ -8,8 +8,8 @@ type Screen = "list" | "seats" | "pay" | "thanks";
 const PENDING_KEY = "tm_pending_order";
 
 export default function App() {
-  // Σελίδα εισιτηρίου: .../?t=<serial_uid>
-  const ticketUid = new URLSearchParams(window.location.search).get("t");
+  // Σελίδα εισιτηρίου: .../?tk=<serial_uid>  (το 't' το χρησιμοποιεί η Viva για transactionId)
+  const ticketUid = new URLSearchParams(window.location.search).get("tk");
   if (ticketUid) return <TicketPage uid={ticketUid} />;
 
   const [screen, setScreen] = useState<Screen>("list");

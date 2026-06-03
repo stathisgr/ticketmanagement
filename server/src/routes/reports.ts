@@ -46,6 +46,20 @@ export default async function reportRoutes(app: FastifyInstance) {
     const bySource: Record<string, { gross: number; qty: number }> = { pos: { gross: 0, qty: 0 }, hall: { gross: 0, qty: 0 } };
     for (const r of src) bySource[r.src] = { gross: +Number(r.gross).toFixed(2), qty: Number(r.qty) };
 
+    // Κανάλι: Τοπικά (ταμείο) vs Online
+    const chanRows = db
+      .prepare(
+        `SELECT s.source AS source, COUNT(DISTINCT s.id) AS sales,
+                COALESCE(SUM(si.line_total),0) AS gross, COALESCE(SUM(si.qty),0) AS qty
+         FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id
+         WHERE date(s.datetime) BETWEEN ? AND ? GROUP BY s.source`
+      )
+      .all(from, to) as any[];
+    const byChannel: Record<string, { sales: number; gross: number; qty: number }> = {
+      local: { sales: 0, gross: 0, qty: 0 }, online: { sales: 0, gross: 0, qty: 0 },
+    };
+    for (const r of chanRows) if (byChannel[r.source]) byChannel[r.source] = { sales: Number(r.sales), gross: +Number(r.gross).toFixed(2), qty: Number(r.qty) };
+
     return {
       from, to,
       gross: +Number(totals.gross).toFixed(2),
@@ -54,7 +68,7 @@ export default async function reportRoutes(app: FastifyInstance) {
       sales: Number(totals.sales),
       tickets: Number(tickets.qty),
       avgPerSale: totals.sales ? +(Number(totals.gross) / Number(totals.sales)).toFixed(2) : 0,
-      byMethod, bySource,
+      byMethod, bySource, byChannel,
     };
   });
 
