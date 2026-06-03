@@ -38,6 +38,46 @@ async function upsert(c: OnlineCfg, table: string, onConflict: string, rows: any
 
 const euroToCents = (v: number) => Math.round(Number(v) * 100);
 
+/** Λίστα ημερομηνιών 'YYYY-MM-DD' από from έως to (συμπεριλαμβανομένων). */
+function dateRange(from: string, to: string, maxDays = 92): string[] {
+  const out: string[] = [];
+  const d = new Date(from + 'T00:00:00');
+  const end = new Date(to + 'T00:00:00');
+  while (d <= end && out.length < maxDays) {
+    out.push(d.toISOString().slice(0, 10));
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+/**
+ * Δημοσίευση θεάματος για ΕΥΡΟΣ ημερομηνιών (από–έως). Ένα cloud θέαμα ανά ημέρα,
+ * με ημερήσια ώρα κλεισίματος online (closeTime 'HH:MM') για κάθε ημερομηνία.
+ * Το εύρος κλιμακώνεται μέσα στο valid_from..valid_to του τοπικού θεάματος.
+ */
+export async function pushRange(
+  showId: number, fromDate: string, toDate: string, closeTime: string,
+): Promise<{ published: string[]; cloudIds: number[] }> {
+  const show = db.prepare('SELECT * FROM shows WHERE id = ?').get(showId) as any;
+  if (!show) throw new Error('Δεν βρέθηκε θέαμα');
+  // Περιορισμός μέσα στο εύρος ισχύος του θεάματος, αν υπάρχει.
+  const vf = (show.valid_from ?? '').slice(0, 10);
+  const vt = (show.valid_to ?? '').slice(0, 10);
+  const from = vf && fromDate < vf ? vf : fromDate;
+  const to = vt && toDate > vt ? vt : toDate;
+  if (from > to) throw new Error('Το εύρος ημερομηνιών είναι εκτός ισχύος του θεάματος');
+
+  const dates = dateRange(from, to);
+  const published: string[] = []; const cloudIds: number[] = [];
+  for (const d of dates) {
+    const ct = closeTime && /^\d{2}:\d{2}$/.test(closeTime) ? closeTime : '17:00';
+    const salesCloseAt = new Date(`${d}T${ct}:00`).toISOString(); // local→UTC
+    const cloudId = await pushPublication(showId, d, salesCloseAt);
+    published.push(d); cloudIds.push(cloudId);
+  }
+  return { published, cloudIds };
+}
+
 /**
  * Δημοσίευση ενός θεάματος (συγκεκριμένη ημερομηνία) στο cloud:
  * μεταφέρει το θέαμα, τους τύπους εισιτηρίων και ΟΛΕΣ τις θέσεις της αίθουσας (ως έχει).
@@ -70,15 +110,30 @@ export async function pushPublication(showId: number, showDate: string, salesClo
     price_cents: euroToCents(t.price), vat_rate: t.vat_rate ?? 6, sort: t.sort_order ?? 0, enabled: true,
   })));
 
-  // 3) Θέσεις της αίθουσας (μόνο πραγματικές θέσεις) — ολόκληρος ο χάρτης online
-  const seats = db.prepare(
-    "SELECT * FROM seats WHERE hall_id = ? AND kind = 'seat' AND enabled = 1 ORDER BY y, x"
+  // 3) ΟΛΟΣ ο χάρτης της αίθουσας (θέσεις + διάδρομοι + κενά) με συντεταγμένες,
+  //    ώστε το online seat-map να είναι ίδιο με του ταμείου.
+  const cells = db.prepare(
+    "SELECT * FROM seats WHERE hall_id = ? AND enabled = 1 ORDER BY y, x"
   ).all(show.hall_id) as any[];
-  await upsert(c, 'seats', 'show_id,local_seat_id', seats.map((s) => ({
-    show_id: cloudShowId, local_seat_id: s.id,
-    row_label: s.row_label ?? '', seat_label: s.display_name ?? `${s.row_label ?? ''}${s.col_label ?? ''}`,
-    channel: 'online',
+  const label = (s: any) =>
+    s.kind === 'seat' ? (s.display_name ?? `${s.row_label ?? ''}${s.col_label ?? ''}`) : `${s.kind}_${s.y}_${s.x}`;
+  // Upsert ΧΩΡΙΣ status (ώστε να μη χαλάμε τυχόν online-πουλημένες σε επανα-push).
+  await upsert(c, 'seats', 'show_id,local_seat_id', cells.map((s) => ({
+    show_id: cloudShowId, local_seat_id: s.id, x: s.x, y: s.y, kind: s.kind,
+    row_label: s.row_label ?? '', seat_label: label(s), channel: 'online',
   })));
+
+  // 3b) Θέσεις ήδη πουλημένες ΑΠΟ ΤΟ ΤΑΜΕΙΟ για αυτή την ημερομηνία → sold online.
+  const soldLocal = db.prepare(
+    'SELECT DISTINCT seat_id FROM tickets WHERE show_id = ? AND show_date = ? AND seat_id IS NOT NULL'
+  ).all(showId, showDate) as any[];
+  const soldIds = soldLocal.map((r) => r.seat_id);
+  if (soldIds.length) {
+    await rest(c, `seats?show_id=eq.${cloudShowId}&local_seat_id=in.(${soldIds.join(',')})`, {
+      method: 'PATCH', headers: headers(c, { Prefer: 'return=minimal' }),
+      body: JSON.stringify({ status: 'sold', sold_channel: 'box_office' }),
+    });
+  }
 
   // 4) Καταγραφή publication τοπικά
   db.prepare(
@@ -115,7 +170,18 @@ export async function pull(): Promise<{ pulled: number; perShow: Record<number, 
   let pulled = 0; const perShow: Record<number, number> = {};
 
   for (const pub of pubs) {
-    // Πουλημένες online θέσεις στο cloud (sold_channel=online) με το local_seat_id τους.
+    // (α) ΑΝΕΒΑΣΜΑ: θέσεις που πούλησε το ταμείο για αυτή την ημ/νία → sold(box_office) στο cloud.
+    const soldLocal = db.prepare(
+      'SELECT DISTINCT seat_id FROM tickets WHERE show_id = ? AND show_date = ? AND seat_id IS NOT NULL'
+    ).all(pub.show_id, pub.show_date) as any[];
+    const soldIds = soldLocal.map((r) => r.seat_id);
+    if (soldIds.length) {
+      await rest(c, `seats?show_id=eq.${pub.cloud_show_id}&local_seat_id=in.(${soldIds.join(',')})&sold_channel=is.null`, {
+        method: 'PATCH', headers: headers(c, { Prefer: 'return=minimal' }),
+        body: JSON.stringify({ status: 'sold', sold_channel: 'box_office' }),
+      });
+    }
+    // (β) ΚΑΤΕΒΑΣΜΑ: online πουλημένες θέσεις (sold_channel=online) με το local_seat_id τους.
     const rows = await rest(c,
       `seats?show_id=eq.${pub.cloud_show_id}&sold_channel=eq.online&select=local_seat_id`,
       { method: 'GET', headers: headers(c) });

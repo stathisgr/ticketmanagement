@@ -14,27 +14,33 @@ export default function Online() {
   const [shows, setShows] = useState<Show[]>([]);
   const [pubs, setPubs] = useState<Publication[]>([]);
   const [showId, setShowId] = useState<number | ''>('');
-  const [date, setDate] = useState('');
-  const [closeAt, setCloseAt] = useState('');
+  const [date, setDate] = useState('');        // ημερομηνία αναζήτησης θεάματος
+  const [from, setFrom] = useState('');         // εύρος δημοσίευσης: από
+  const [to, setTo] = useState('');             // εύρος δημοσίευσης: έως
+  const [closeTime, setCloseTime] = useState('17:00'); // ημερήσια ώρα κλεισίματος online
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   function reload() {
     api.get<OnlineConfig>('/api/online/config').then(setCfg).catch((e) => setError(e.message));
-    api.get<Show[]>('/api/shows').then(setShows).catch(() => {});
     api.get<Publication[]>('/api/online/publications').then(setPubs).catch(() => {});
   }
   useEffect(reload, []);
 
-  const selectedShow = shows.find((s) => s.id === showId);
-
-  // Όταν επιλεγεί θέαμα, προτείνει ημερομηνία (valid_from) και cutoff 17:00 ίδιας μέρας.
+  // Πρώτα ημερομηνία → φέρνει τα θεάματα που παίζουν εκείνη την ημέρα (με τις ώρες τους).
   useEffect(() => {
-    if (!selectedShow) return;
-    const d = (selectedShow.valid_from ?? '').slice(0, 10);
-    setDate(d);
-    if (d) setCloseAt(`${d}T17:00`);
+    setShowId(''); setShows([]);
+    if (!date) return;
+    api.get<Show[]>(`/api/shows?date=${date}`).then(setShows).catch(() => {});
+  }, [date]);
+
+  // Όταν επιλεγεί θέαμα, προτείνει εύρος δημοσίευσης = εύρος ισχύος του θεάματος (ή την ημέρα).
+  useEffect(() => {
+    const s = shows.find((x) => x.id === showId);
+    if (!s) return;
+    setFrom((s.valid_from ?? date).slice(0, 10) || date);
+    setTo((s.valid_to ?? date).slice(0, 10) || date);
   }, [showId]);
 
   async function saveConfig() {
@@ -48,12 +54,13 @@ export default function Online() {
   }
 
   async function publish() {
-    if (!showId || !date) { setError('Διάλεξε θέαμα και ημερομηνία'); return; }
+    if (!showId || !from || !to) { setError('Διάλεξε θέαμα και εύρος ημερομηνιών'); return; }
+    if (from > to) { setError('Η ημερομηνία «από» είναι μετά το «έως»'); return; }
     setBusy(true); setError(''); setMsg('');
     try {
-      const closeIso = closeAt ? new Date(closeAt).toISOString() : null;
-      await api.post('/api/online/publish', { show_id: showId, show_date: date, sales_close_at: closeIso });
-      setMsg('✓ Το θέαμα δημοσιεύτηκε online (θέσεις & τιμές μεταφέρθηκαν).');
+      const r = await api.post<{ count: number }>('/api/online/publish-range',
+        { show_id: showId, from, to, close_time: closeTime });
+      setMsg(`✓ Δημοσιεύτηκε online για ${r.count} ημέρες (θέσεις, τιμές & σχέδιο μεταφέρθηκαν).`);
       reload();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
@@ -76,7 +83,7 @@ export default function Online() {
 
   return (
     <div className="p-4 max-w-4xl mx-auto space-y-4">
-      <h1 className="text-2xl font-bold">Online Κρατήσεις (Supabase)</h1>
+      <h1 className="text-2xl font-bold">Online Κρατήσεις</h1>
       {error && <div className="bg-red-100 text-red-700 p-2 rounded">{error}</div>}
       {msg && <div className="bg-green-100 text-green-700 p-2 rounded">{msg}</div>}
 
@@ -84,8 +91,8 @@ export default function Online() {
       <div className="bg-white rounded-lg shadow p-4 space-y-3">
         <h2 className="font-semibold text-lg">Σύνδεση</h2>
         <label className="block">
-          <span className="text-sm text-gray-600">Supabase URL</span>
-          <input className="w-full border rounded px-3 py-2" placeholder="https://xxxx.supabase.co"
+          <span className="text-sm text-gray-600">Διεύθυνση Cloud (URL)</span>
+          <input className="w-full border rounded px-3 py-2" placeholder="https://..."
             value={cfg.supabase_url} onChange={(e) => setCfg({ ...cfg, supabase_url: e.target.value })} />
         </label>
         <label className="block">
@@ -113,19 +120,30 @@ export default function Online() {
         <h2 className="font-semibold text-lg">Δημοσίευση θεάματος online</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="block">
-            <span className="text-sm text-gray-600">Θέαμα</span>
-            <select className="w-full border rounded px-3 py-2" value={showId} onChange={(e) => setShowId(e.target.value ? Number(e.target.value) : '')}>
-              <option value="">— διάλεξε —</option>
-              {shows.map((s) => <option key={s.id} value={s.id}>{s.title} ({s.hall_name})</option>)}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-sm text-gray-600">Ημερομηνία παράστασης</span>
+            <span className="text-sm text-gray-600">1. Ημερομηνία παράστασης</span>
             <input type="date" className="w-full border rounded px-3 py-2" value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
           <label className="block">
-            <span className="text-sm text-gray-600">Κλείσιμο online πωλήσεων</span>
-            <input type="datetime-local" className="w-full border rounded px-3 py-2" value={closeAt} onChange={(e) => setCloseAt(e.target.value)} />
+            <span className="text-sm text-gray-600">2. Θέαμα της ημέρας</span>
+            <select className="w-full border rounded px-3 py-2" value={showId} disabled={!date}
+              onChange={(e) => setShowId(e.target.value ? Number(e.target.value) : '')}>
+              <option value="">{date ? (shows.length ? '— διάλεξε —' : 'καμία παράσταση αυτή τη μέρα') : 'διάλεξε ημερομηνία πρώτα'}</option>
+              {shows.map((s) => <option key={s.id} value={s.id}>{s.start_time}{s.end_time ? `–${s.end_time}` : ''} · {s.title} ({s.hall_name})</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-sm text-gray-600">3. Ώρα κλεισίματος online (ανά ημέρα)</span>
+            <input type="time" className="w-full border rounded px-3 py-2" value={closeTime} onChange={(e) => setCloseTime(e.target.value)} />
+          </label>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-sm text-gray-600">Δημοσίευση από</span>
+            <input type="date" className="w-full border rounded px-3 py-2" value={from} disabled={!showId} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="text-sm text-gray-600">έως</span>
+            <input type="date" className="w-full border rounded px-3 py-2" value={to} disabled={!showId} onChange={(e) => setTo(e.target.value)} />
           </label>
         </div>
         <button onClick={publish} disabled={busy || !cfg.enabled} className="bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-40">

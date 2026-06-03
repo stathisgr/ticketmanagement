@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db.js';
 import { authenticate, requireManager } from '../auth.js';
-import { pushPublication, unpublish, pull } from '../online/sync.js';
+import { pushPublication, pushRange, unpublish, pull } from '../online/sync.js';
 
 export default async function onlineRoutes(app: FastifyInstance) {
   // --- Ρυθμίσεις σύνδεσης ---
@@ -48,6 +48,15 @@ export default async function onlineRoutes(app: FastifyInstance) {
     try {
       const cloudShowId = await pushPublication(b.show_id, b.show_date, b.sales_close_at ?? null);
       return { ok: true, cloud_show_id: cloudShowId };
+    } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+  });
+
+  app.post('/api/online/publish-range', { preHandler: requireManager }, async (req, reply) => {
+    const b = req.body as { show_id?: number; from?: string; to?: string; close_time?: string };
+    if (!b.show_id || !b.from || !b.to) return reply.code(400).send({ error: 'show_id, from, to απαιτούνται' });
+    try {
+      const r = await pushRange(b.show_id, b.from, b.to, b.close_time ?? '17:00');
+      return { ok: true, published: r.published, count: r.published.length };
     } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
   });
 

@@ -12,7 +12,7 @@ export interface Show {
   brand_color: string; sales_close_at: string | null;
 }
 export interface TicketType { id: number; title: string; price_cents: number; sort: number; }
-export interface SeatAvail { seat_id: number; zone: string; row_label: string; seat_label: string; available: boolean; }
+export interface SeatAvail { seat_id: number; x: number; y: number; kind: string; zone: string; row_label: string; seat_label: string; available: boolean; }
 
 // --- PostgREST ---
 export async function listShows(): Promise<Show[]> {

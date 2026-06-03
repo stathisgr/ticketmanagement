@@ -70,10 +70,12 @@ export default function App() {
     });
   }
 
-  const rows = useMemo(() => {
-    const m = new Map<string, SeatAvail[]>();
-    for (const s of seats) { const k = s.row_label || "•"; (m.get(k) ?? m.set(k, []).get(k)!).push(s); }
-    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b, "el"));
+  // Πλέγμα ανά γραμμή (y), κελιά ταξινομημένα ανά στήλη (x) — διάδρομοι/κενά ως spacers.
+  const grid = useMemo(() => {
+    const byY = new Map<number, SeatAvail[]>();
+    for (const s of seats) { const y = s.y ?? 0; if (!byY.has(y)) byY.set(y, []); byY.get(y)!.push(s); }
+    return [...byY.entries()].sort((a, b) => a[0] - b[0])
+      .map(([y, cells]) => ({ y, cells: cells.sort((a, b) => (a.x ?? 0) - (b.x ?? 0)) }));
   }, [seats]);
 
   const ttMap = useMemo(() => new Map(types.map((t) => [t.id, t])), [types]);
@@ -143,16 +145,17 @@ export default function App() {
 
             <div className="screenrow">ΟΘΟΝΗ / ΣΚΗΝΗ</div>
             <div className="seatmap">
-              {rows.map(([label, rowSeats]) => (
-                <div key={label} className="seatrow">
-                  <span className="rowlabel">{label}</span>
-                  {rowSeats.map((seat) => {
+              {grid.map((row) => (
+                <div key={row.y} className="seatrow">
+                  <span className="rowlabel">{row.cells.find((c) => c.kind === "seat")?.row_label ?? ""}</span>
+                  {row.cells.map((seat) => {
+                    if (seat.kind !== "seat") return <span key={`${row.y}-${seat.x}`} className="seat" style={{ background: "transparent" }} />;
                     const sel = !!picked[seat.seat_id];
                     const cls = !seat.available ? "sold" : sel ? "sel" : "";
                     return (
                       <button key={seat.seat_id} className={`seat ${cls}`} onClick={() => toggleSeat(seat)}
                         title={seat.seat_label} disabled={!seat.available}>
-                        {seat.seat_label.replace(label, "")}
+                        {(seat.row_label && seat.seat_label.startsWith(seat.row_label)) ? seat.seat_label.slice(seat.row_label.length) : seat.seat_label}
                       </button>
                     );
                   })}
