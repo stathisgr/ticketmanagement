@@ -3,6 +3,7 @@ import {
   listShows, listTicketTypes, seatAvailability, createOrder, orderStatus, getTicket,
   eur, dateGr, type Show, type TicketType, type SeatAvail, type OrderStatus, type TicketView,
 } from "./api";
+import Terms from "./Terms";
 
 type Screen = "list" | "seats" | "pay" | "thanks";
 const PENDING_KEY = "tm_pending_order";
@@ -25,6 +26,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const [showTerms, setShowTerms] = useState(false);   // modal Όρων
+  const [acceptedTerms, setAcceptedTerms] = useState(false); // αποδοχή πριν την πληρωμή
 
   // Επιστροφή από Viva: αν υπάρχει pending order, δείξε ευχαριστίες + polling.
   const [pending, setPending] = useState<{ orderId: number; token: string; title: string } | null>(null);
@@ -147,6 +150,7 @@ export default function App() {
   function reset() {
     localStorage.removeItem(PENDING_KEY);
     setPending(null); setStatus(null); setShow(null); setPicked({}); setQty({}); setError("");
+    setAcceptedTerms(false); setShowTerms(false);
     setScreen("list");
   }
 
@@ -191,6 +195,9 @@ export default function App() {
             <button className="link" onClick={reset}>← Πίσω στα θεάματα</button>
             <h2>{show.title}</h2>
             <div className="muted">{dateGr(show.show_date)} · {show.start_time} · {show.venue_name}</div>
+            <div style={{ margin: "4px 0 8px" }}>
+              <button className="link" onClick={() => setShowTerms(true)}>Όροι &amp; Προϋποθέσεις</button>
+            </div>
 
             {!isGeneral && (
               <>
@@ -285,7 +292,13 @@ export default function App() {
             <label className="field"><label>Τηλέφωνο</label>
               <input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} /></label>
 
-            <button className="btn" disabled={busy} style={{ width: "100%", marginTop: 8 }} onClick={pay}>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "10px 0", fontSize: 14 }}>
+              <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} style={{ marginTop: 3 }} />
+              <span>Έχω διαβάσει και αποδέχομαι τους{" "}
+                <button type="button" className="link" onClick={() => setShowTerms(true)}>Όρους &amp; Προϋποθέσεις</button>{" "}
+                και την Πολιτική Προστασίας Δεδομένων.</span>
+            </label>
+            <button className="btn" disabled={busy || !acceptedTerms} style={{ width: "100%", marginTop: 4 }} onClick={pay}>
               {busy ? "Μεταφορά στην πληρωμή…" : `Πληρωμή ${eur(total)} με κάρτα`}
             </button>
             <p className="muted" style={{ textAlign: "center", marginTop: 8 }}>
@@ -319,6 +332,7 @@ export default function App() {
           </div>
         )}
       </div>
+      {showTerms && <Terms venue={show?.venue_name} onClose={() => setShowTerms(false)} />}
     </>
   );
 }

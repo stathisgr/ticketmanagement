@@ -27,4 +27,18 @@ export default async function authRoutes(app: FastifyInstance) {
   app.get('/api/me', { preHandler: authenticate }, async (req) => {
     return { user: req.user };
   });
+
+  // Αλλαγή κωδικού του ΣΥΝΔΕΔΕΜΕΝΟΥ χρήστη (επιβεβαίωση τρέχοντος κωδικού).
+  app.post('/api/me/password', { preHandler: authenticate }, async (req, reply) => {
+    const user = req.user as JwtUser;
+    const { current, next } = (req.body ?? {}) as { current?: string; next?: string };
+    if (!next || String(next).length < 4)
+      return reply.code(400).send({ error: 'Ο νέος κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες' });
+    const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id) as { password_hash: string } | undefined;
+    if (!row) return reply.code(404).send({ error: 'Δεν βρέθηκε χρήστης' });
+    if (!bcrypt.compareSync(current ?? '', row.password_hash))
+      return reply.code(401).send({ error: 'Λάθος τρέχων κωδικός' });
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(bcrypt.hashSync(String(next), 10), user.id);
+    return { ok: true };
+  });
 }

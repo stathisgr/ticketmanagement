@@ -187,7 +187,40 @@ function BusinessTab({ onSaved }: { onSaved?: () => void }) {
 
       <button onClick={save} className="mt-5 bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση</button>
 
+      <PasswordSection />
       <BackupSection />
+    </div>
+  );
+}
+
+/* ---------------- Αλλαγή κωδικού (συνδεδεμένος χρήστης) ---------------- */
+function PasswordSection() {
+  const [cur, setCur] = useState('');
+  const [next, setNext] = useState('');
+  const [conf, setConf] = useState('');
+  const [msg, setMsg] = useState('');
+
+  async function save() {
+    setMsg('');
+    if (next.length < 4) { setMsg('Ο νέος κωδικός πρέπει να έχει τουλάχιστον 4 χαρακτήρες'); return; }
+    if (next !== conf) { setMsg('Ο νέος κωδικός και η επιβεβαίωση δεν ταιριάζουν'); return; }
+    try {
+      await api.post('/api/me/password', { current: cur, next });
+      setMsg('✓ Ο κωδικός άλλαξε'); setCur(''); setNext(''); setConf('');
+    } catch (e) { setMsg((e as Error).message); }
+  }
+
+  return (
+    <div className="mt-8 border-t pt-4">
+      <h3 className="font-semibold mb-2">Κωδικός διαχειριστή</h3>
+      <Msg text={msg} />
+      <p className="text-xs text-gray-500 mb-2">Αλλαγή του κωδικού του συνδεδεμένου λογαριασμού. Συνιστάται να αλλάξεις τον προεπιλεγμένο κωδικό.</p>
+      <div className="grid grid-cols-3 gap-3 max-w-2xl">
+        <L label="Τρέχων κωδικός"><input type="password" className="inp" value={cur} onChange={(e) => setCur(e.target.value)} autoComplete="current-password" /></L>
+        <L label="Νέος κωδικός"><input type="password" className="inp" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" /></L>
+        <L label="Επιβεβαίωση"><input type="password" className="inp" value={conf} onChange={(e) => setConf(e.target.value)} autoComplete="new-password" /></L>
+      </div>
+      <button onClick={save} className="mt-2 bg-slate-800 text-white px-4 py-1.5 rounded text-sm">Αλλαγή κωδικού</button>
     </div>
   );
 }
