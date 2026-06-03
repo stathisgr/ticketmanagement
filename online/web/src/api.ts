@@ -8,8 +8,9 @@ const restHeaders = {
 
 export interface Show {
   id: number; title: string; subtitle: string; venue_name: string;
-  show_date: string; start_time: string; seating_mode: string;
+  show_date: string; start_time: string; end_time?: string | null; seating_mode: string;
   brand_color: string; sales_close_at: string | null;
+  image_url?: string | null; description?: string | null;
 }
 export interface TicketType { id: number; title: string; price_cents: number; sort: number; }
 export interface SeatAvail { seat_id: number; x: number; y: number; kind: string; zone: string; row_label: string; seat_label: string; available: boolean; }

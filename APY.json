@@ -1,0 +1,93 @@
+{
+  "Guid": "{{$guid}}",
+  "TransmissionFailure": false,
+  "TransFailure": 0,
+  "Template": 3,
+  "FileType": 2,
+  "ShowCounterpart": false,
+  "DeferredTransaction": false,
+  "ReceiptStatus": 0,
+  "PaymentStatus": 0,
+  "DiscServer": false,
+  "InvoiceHeader": {
+    "InvoiceTypeId": 20,
+    "IncludesVat": true,
+    "Series": "ΑΠY",
+    "Aa": "5406",
+    "Counter": 1,
+    "IssueDate": "2026-06-03T13:26:40.5214268",
+    "CurrencyId": 47,
+    "MultipleConnectedMarksGuid": []
+  },
+  "Issuer": {
+    "VatNumber": "525706042",
+    "CountryIdAade": "GR",
+    "CountryId": 87,
+    "Branch": 0,
+    "Name": "MAT S.A.",
+    "Activity": "WHOLESALE OF ELECTRONIC CASH REGISTERS",
+    "TaxOffice": "ISSUER TAX OFFICE",
+    "Phone": "2105690260",
+    "Email": "info@mat.com.gr",
+    "Address": {
+      "City": "PERISTERI",
+      "PostalCode": "12133",
+      "Street": "MOUSOUNITSIS",
+      "Number": "15"
+    }
+  },
+  "Counterpart": {
+    "VatNumber": "000000000",
+    "CountryIdAade": "GR",
+    "CountryId": 87,
+    "Branch": 0,
+    "Code": "CUSTOMER CODE",
+    "Name": "Πελάτης λιανικής",
+    "Address": {
+      "City": "PERISTERI",
+      "PostalCode": "12133",
+      "Street": "SOLOMOU",
+      "Number": "4"
+    }
+  },
+  "Shipping": {
+    "PurposeId": 1,
+    "From": "OUR BRANCH",
+    "To": "THEIR BRANCH",
+    "Method": "COURIER",
+    "Vehicle": "IOX-1234"
+  },
+  "InvoiceDetails": [
+    {
+      "Line": 1,
+      "Code": "test1",
+      "Name": "test1",
+      "MUnitId": 1,
+      "Qty": 1.0,
+      "ItemPrc": 12.4,
+      "DiscType": 0,
+      "TotPrice": 12.4,
+      "TotPrcAfterDisc": 12.4,
+      "DiscountValue": 0.0,
+      "NetValue": 10.0,
+      "VatAmount": 2.4,
+      "VatCatId": 1,
+      "IncomeCatId": 2,
+      "IncomeValId": 8
+    }
+  ],
+  "PaymentMethods": [
+    {
+      "PayGuid": "2933ff49-3a48-4656-a248-19c7be1994f9",
+      "PaymentId": 3,
+      "Net": 10.0,
+      "Vat": 2.4,
+      "Amount": 12.4,
+      "TipAmount": 0.0,
+      "AcquirerId": 122,
+      "PaymentStatus": 2,
+      "DateAdded": "2025-06-16T13:26:41.5687388",
+      "TidNsp": "77225118"
+    }
+  ]
+}

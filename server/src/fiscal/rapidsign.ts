@@ -53,7 +53,7 @@ export class RapidSignProvider {
   private async call<T = any>(path: string, opts: { method?: string; body?: any; headers?: Record<string, string> } = {}): Promise<Envelope<T>> {
     const res = await fetch(this.base() + path, {
       method: opts.method ?? 'GET',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(opts.headers ?? {}) },
+      headers: { 'Content-Type': 'application/json', Accept: 'Response', ...(opts.headers ?? {}) },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     });
     const text = await res.text();
@@ -64,7 +64,9 @@ export class RapidSignProvider {
   }
 
   private pickToken(env: Envelope): string | null {
-    return env.token || env.jsonData?.token || env.jsonData?.accessToken || env.jsonData?.refreshToken || null;
+    // Επιτυχημένη απάντηση: { refreshToken: { token, expires } }
+    return env.refreshToken?.token || env.jsonData?.refreshToken?.token
+      || env.refToken || env.token || env.jsonData?.token || env.jsonData?.accessToken || null;
   }
 
   /** Authorize → RefreshToken → cache bearer. */
@@ -74,7 +76,7 @@ export class RapidSignProvider {
       body: { username: this.cfg.username, password: this.cfg.password, activationCode: this.cfg.activationCode },
     });
     const parent = this.pickToken(auth);
-    if (!parent) throw new Error('RapidSign Authorize: δεν επιστράφηκε token. ' + (auth.message ?? ''));
+    if (!parent) throw new Error('RapidSign Authorize: δεν επιστράφηκε token. Απάντηση: ' + JSON.stringify(auth).slice(0, 400));
     const refreshed = await this.call('/api/v1.0/provider/RefreshToken', {
       method: 'POST', headers: { ParentToken: parent },
     });

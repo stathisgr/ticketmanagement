@@ -18,6 +18,8 @@ export default function App() {
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
 
   // Επιστροφή από Viva: αν υπάρχει pending order, δείξε ευχαριστίες + polling.
   const [pending, setPending] = useState<{ orderId: number; token: string; title: string } | null>(null);
@@ -85,6 +87,15 @@ export default function App() {
   );
   const count = Object.keys(picked).length;
 
+  // Θεάματα ανά ημερομηνία (για το ημερολόγιο) + σύνολο διαθέσιμων ημερομηνιών.
+  const showsByDate = useMemo(() => {
+    const m = new Map<string, Show[]>();
+    for (const s of shows) { const k = s.show_date; if (!m.has(k)) m.set(k, []); m.get(k)!.push(s); }
+    for (const arr of m.values()) arr.sort((a, b) => (a.start_time || "").localeCompare(b.start_time || ""));
+    return m;
+  }, [shows]);
+  const dayShows = selectedDate ? (showsByDate.get(selectedDate) ?? []) : [];
+
   async function pay() {
     if (!show || !count) return;
     if (!customer.email) { setError("Συμπληρώστε email"); return; }
@@ -110,23 +121,33 @@ export default function App() {
         {error && <div className="err">{error}</div>}
 
         {screen === "list" && (
-          <>
-            {shows.length === 0 && !error && <p className="muted">Φόρτωση θεαμάτων…</p>}
-            {shows.map((s) => (
-              <div key={s.id} className="card" onClick={() => !isClosed(s) && openShow(s)}>
-                <div className="row">
-                  <div>
-                    <h3>{s.title}</h3>
-                    <div className="muted">{s.subtitle}</div>
-                    <div className="muted">{s.venue_name} · {dateGr(s.show_date)} · {s.start_time}</div>
+          <div className="booking">
+            <div className="calwrap">
+              <Calendar month={calMonth} setMonth={setCalMonth}
+                hasShows={(d) => showsByDate.has(d)} selected={selectedDate} onPick={setSelectedDate} />
+            </div>
+            <div className="dayshows">
+              {!selectedDate && <p className="muted">Διάλεξε ημερομηνία από το ημερολόγιο για να δεις τα θεάματα.</p>}
+              {selectedDate && dayShows.length === 0 && <p className="muted">Καμία παράσταση στις {dateGr(selectedDate)}.</p>}
+              {selectedDate && dayShows.length > 0 && <h3 style={{ marginTop: 0 }}>{dateGr(selectedDate)}</h3>}
+              {dayShows.map((s) => (
+                <div key={s.id} className="card" onClick={() => !isClosed(s) && openShow(s)}>
+                  {s.image_url && <img className="showimg" src={s.image_url} alt={s.title} />}
+                  <div className="row">
+                    <div>
+                      <h3>{s.title}</h3>
+                      <div className="muted">{s.subtitle}</div>
+                      {s.description && <div className="muted" style={{ marginTop: 4 }}>{s.description}</div>}
+                      <div className="muted">{s.venue_name} · {s.start_time}{s.end_time ? `–${s.end_time}` : ""}</div>
+                    </div>
+                    {isClosed(s)
+                      ? <span className="closed">Έκλεισαν οι online πωλήσεις</span>
+                      : <span className="btn alt">Κράτηση →</span>}
                   </div>
-                  {isClosed(s)
-                    ? <span className="closed">Έκλεισαν οι online πωλήσεις</span>
-                    : <span className="btn alt">Κράτηση →</span>}
                 </div>
-              </div>
-            ))}
-          </>
+              ))}
+            </div>
+          </div>
         )}
 
         {screen === "seats" && show && (
@@ -237,5 +258,58 @@ export default function App() {
         )}
       </div>
     </>
+  );
+}
+
+// ── Ημερολόγιο-widget (μήνας, Δευτέρα πρώτη) ──────────────────────────────
+function Calendar({ month, setMonth, hasShows, selected, onPick }: {
+  month: { y: number; m: number };
+  setMonth: (m: { y: number; m: number }) => void;
+  hasShows: (date: string) => boolean;
+  selected: string;
+  onPick: (date: string) => void;
+}) {
+  const { y, m } = month;
+  const monthName = new Intl.DateTimeFormat("el-GR", { month: "long", year: "numeric" })
+    .format(new Date(y, m, 1));
+  const first = new Date(y, m, 1);
+  const startOffset = (first.getDay() + 6) % 7; // Δευτέρα = 0
+  const daysIn = new Date(y, m + 1, 0).getDate();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < startOffset; i++) cells.push(null);
+  for (let d = 1; d <= daysIn; d++) cells.push(`${y}-${pad(m + 1)}-${pad(d)}`);
+
+  const prev = () => setMonth(m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 });
+  const next = () => setMonth(m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 });
+
+  return (
+    <div className="cal">
+      <div className="cal-head">
+        <button className="cal-nav" onClick={prev}>‹</button>
+        <span className="cal-title">{monthName}</span>
+        <button className="cal-nav" onClick={next}>›</button>
+      </div>
+      <div className="cal-grid cal-dow">
+        {["Δε", "Τρ", "Τε", "Πε", "Πα", "Σά", "Κυ"].map((w) => <span key={w}>{w}</span>)}
+      </div>
+      <div className="cal-grid">
+        {cells.map((date, i) => {
+          if (!date) return <span key={i} />;
+          const has = hasShows(date);
+          const past = new Date(date + "T00:00:00") < today;
+          const cls = ["cal-day"];
+          if (has && !past) cls.push("has");
+          if (date === selected) cls.push("sel");
+          if (past || !has) cls.push("off");
+          const day = Number(date.slice(8));
+          return (
+            <button key={date} className={cls.join(" ")} disabled={past || !has}
+              onClick={() => onPick(date)}>{day}</button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
