@@ -233,7 +233,6 @@ export default function App() {
             {isGeneral && (
               <div className="qtylist">
                 <p className="muted">Επίλεξε πόσα εισιτήρια θέλεις — ελεύθερη είσοδος (χωρίς συγκεκριμένη θέση).</p>
-                {genRemaining != null && <p className="muted">Διαθέσιμα ακόμη: <strong>{genRemaining}</strong></p>}
                 {types.map((t) => (
                   <div key={t.id} className="qtyrow row" style={{ alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--line, #eee)" }}>
                     <div>
