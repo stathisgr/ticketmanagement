@@ -1,0 +1,92 @@
+// Παράγει το HTML εισιτήριο (ίδιο look με C:\ticket\online\ticket-template.html).
+import QRCode from "npm:qrcode@1.5.3";
+
+export interface TicketView {
+  venueName: string;
+  showTitle: string;
+  showSubtitle: string;
+  date: string;
+  time: string;
+  seat: string;
+  ticketType: string;
+  holder: string;
+  price: string;
+  serial: string;
+  brandColor: string;
+  legal: string;
+  qrData: string; // περιεχόμενο QR (serial_uid)
+}
+
+export async function qrDataUri(data: string): Promise<string> {
+  return await QRCode.toDataURL(data, { margin: 1, width: 400, errorCorrectionLevel: "M" });
+}
+
+function esc(s: string): string {
+  return String(s ?? "").replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+}
+
+export async function renderTicketHtml(v: TicketView): Promise<string> {
+  const qr = await qrDataUri(v.qrData);
+  return `<!doctype html>
+<html lang="el">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Εισιτήριο — ${esc(v.venueName)}</title>
+<style>
+  :root{ --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --brand:${esc(v.brandColor)}; --bg:#f3f4f6; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans",sans-serif;color:var(--ink);padding:16px}
+  .ticket{max-width:420px;margin:0 auto;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+  .top{background:var(--brand);color:#fff;padding:20px 22px}
+  .top .venue{font-size:13px;letter-spacing:.08em;text-transform:uppercase;opacity:.9}
+  .top .show{font-size:24px;font-weight:800;line-height:1.15;margin-top:6px}
+  .top .sub{font-size:14px;opacity:.92;margin-top:4px}
+  .body{padding:20px 22px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px}
+  .cell .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .cell .val{font-size:17px;font-weight:700;margin-top:2px}
+  .qrwrap{text-align:center;padding:16px;border:1px dashed var(--line);border-radius:14px;background:#fafafa}
+  .qrwrap img{width:200px;height:200px;display:block;margin:0 auto}
+  .serial{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;letter-spacing:.05em;margin-top:10px;font-weight:700}
+  .hint{font-size:12px;color:var(--muted);margin-top:6px}
+  .perf{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--line);margin-top:18px;padding-top:14px}
+  .perf .price{font-size:22px;font-weight:800}
+  .legal{font-size:11px;color:var(--muted);text-align:center;padding:14px 22px;border-top:1px solid var(--line)}
+  .stub{background:var(--brand);height:8px}
+</style>
+</head>
+<body>
+  <div class="ticket">
+    <div class="top">
+      <div class="venue">${esc(v.venueName)}</div>
+      <div class="show">${esc(v.showTitle)}</div>
+      <div class="sub">${esc(v.showSubtitle)}</div>
+    </div>
+    <div class="body">
+      <div class="grid">
+        <div class="cell"><div class="k">Ημερομηνία</div><div class="val">${esc(v.date)}</div></div>
+        <div class="cell"><div class="k">Ώρα</div><div class="val">${esc(v.time)}</div></div>
+        <div class="cell"><div class="k">Θέση</div><div class="val">${esc(v.seat)}</div></div>
+        <div class="cell"><div class="k">Τύπος</div><div class="val">${esc(v.ticketType)}</div></div>
+      </div>
+      <div class="qrwrap">
+        <img alt="QR εισόδου" src="${qr}">
+        <div class="serial">${esc(v.serial)}</div>
+        <div class="hint">Δείξτε αυτό το QR στην είσοδο</div>
+      </div>
+      <div class="perf">
+        <div>
+          <div class="k" style="font-size:11px;text-transform:uppercase;color:var(--muted)">Κάτοχος</div>
+          <div style="font-weight:700">${esc(v.holder)}</div>
+        </div>
+        <div class="price">${esc(v.price)}</div>
+      </div>
+    </div>
+    <div class="legal">${esc(v.legal)}</div>
+    <div class="stub"></div>
+  </div>
+</body>
+</html>`;
+}

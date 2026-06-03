@@ -1,0 +1,78 @@
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config";
+
+const restHeaders = {
+  apikey: SUPABASE_ANON_KEY,
+  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+  "Content-Type": "application/json",
+};
+
+export interface Show {
+  id: number; title: string; subtitle: string; venue_name: string;
+  show_date: string; start_time: string; seating_mode: string;
+  brand_color: string; sales_close_at: string | null;
+}
+export interface TicketType { id: number; title: string; price_cents: number; sort: number; }
+export interface SeatAvail { seat_id: number; zone: string; row_label: string; seat_label: string; available: boolean; }
+
+// --- PostgREST ---
+export async function listShows(): Promise<Show[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const r = await fetch(
+    `${SUPABASE_URL}/rest/v1/shows?select=*&enabled=eq.true&show_date=gte.${today}&order=show_date,start_time`,
+    { headers: restHeaders },
+  );
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function listTicketTypes(showId: number): Promise<TicketType[]> {
+  const r = await fetch(
+    `${SUPABASE_URL}/rest/v1/ticket_types?select=*&enabled=eq.true&show_id=eq.${showId}&order=sort`,
+    { headers: restHeaders },
+  );
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function seatAvailability(showId: number): Promise<SeatAvail[]> {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_seat_availability`, {
+    method: "POST", headers: restHeaders, body: JSON.stringify({ p_show_id: showId }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+// --- Edge Functions ---
+export interface CreateOrderResult { orderId: number; orderCode: string; checkoutUrl: string; statusToken: string; }
+export async function createOrder(payload: {
+  showId: number;
+  items: { seatId: number; ticketTypeId: number }[];
+  customer: { name: string; email: string; phone: string };
+}): Promise<CreateOrderResult> {
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/create-order`, {
+    method: "POST", headers: restHeaders, body: JSON.stringify(payload),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || "Σφάλμα δημιουργίας παραγγελίας");
+  return j;
+}
+
+export interface OrderStatus { status: string; tickets: { serial: string; url: string }[]; }
+export async function orderStatus(orderId: number, token: string): Promise<OrderStatus> {
+  const r = await fetch(
+    `${SUPABASE_URL}/functions/v1/order-status?orderId=${orderId}&token=${encodeURIComponent(token)}`,
+    { headers: restHeaders },
+  );
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export const eur = (cents: number) => (cents / 100).toFixed(2).replace(".", ",") + " €";
+
+export function dateGr(iso: string): string {
+  try {
+    const d = new Date(iso + "T00:00:00");
+    const wd = new Intl.DateTimeFormat("el-GR", { weekday: "long" }).format(d);
+    return `${wd} ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
+  } catch { return iso; }
+}
