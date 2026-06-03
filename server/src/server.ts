@@ -19,6 +19,7 @@ import reportRoutes from './routes/reports.js';
 import printerRoutes from './routes/printers.js';
 import backupRoutes from './routes/backup.js';
 import checkinRoutes from './routes/checkin.js';
+import onlineRoutes from './routes/online.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
@@ -45,6 +46,7 @@ async function main() {
   await app.register(printerRoutes);
   await app.register(backupRoutes);
   await app.register(checkinRoutes);
+  await app.register(onlineRoutes);
 
   app.get('/api/health', async () => ({ ok: true, time: new Date().toISOString() }));
 

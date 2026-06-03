@@ -236,3 +236,39 @@ CREATE INDEX IF NOT EXISTS idx_stt_show ON show_ticket_types(show_id);
 -- Προστασία διπλο-κράτησης: μία θέση ανά θέαμα ΑΝΑ ΗΜΕΡΟΜΗΝΙΑ
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_seat_show
   ON tickets(show_id, show_date, seat_id) WHERE seat_id IS NOT NULL;
+
+-- ===== ONLINE (Supabase) σύνδεση =====
+-- Ρυθμίσεις σύνδεσης με το cloud (singleton id=1). service_key = service_role (μυστικό, μόνο τοπικά).
+CREATE TABLE IF NOT EXISTS online_config (
+  id                  INTEGER PRIMARY KEY CHECK (id = 1),
+  supabase_url        TEXT,
+  service_key         TEXT,
+  sync_minutes_before INTEGER NOT NULL DEFAULT 60,  -- παράμετρος: λεπτά πριν το θέαμα για auto-pull
+  enabled             INTEGER NOT NULL DEFAULT 0
+);
+INSERT OR IGNORE INTO online_config (id) VALUES (1);
+
+-- Ποια θεάματα (ανά ημερομηνία) έχουν δημοσιευτεί online + το cloud id τους.
+CREATE TABLE IF NOT EXISTS online_publications (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  show_id        INTEGER NOT NULL REFERENCES shows(id) ON DELETE CASCADE,
+  show_date      TEXT NOT NULL,            -- 'YYYY-MM-DD'
+  cloud_show_id  INTEGER,                  -- id στο Supabase
+  sales_close_at TEXT,                     -- ISO· κλείσιμο online πωλήσεων
+  enabled        INTEGER NOT NULL DEFAULT 1,
+  pushed_at      TEXT,
+  last_pull_at   TEXT,
+  UNIQUE (show_id, show_date)
+);
+
+-- Online-πουλημένες θέσεις που κατέβηκαν από το cloud (για να τις βλέπει ο ταμίας).
+CREATE TABLE IF NOT EXISTS online_sold_seats (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  show_id      INTEGER NOT NULL,
+  show_date    TEXT NOT NULL,
+  seat_id      INTEGER NOT NULL,
+  serial       TEXT,
+  buyer_email  TEXT,
+  synced_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (show_id, show_date, seat_id)
+);

@@ -50,12 +50,15 @@ export default async function showRoutes(app: FastifyInstance) {
     const showDate = date ?? (show.valid_from ?? '').slice(0, 10);
     const seats = db
       .prepare(
-        `SELECT s.*, CASE WHEN t.id IS NULL THEN 0 ELSE 1 END AS sold
+        `SELECT s.*,
+                CASE WHEN t.id IS NULL AND o.id IS NULL THEN 0 ELSE 1 END AS sold,
+                CASE WHEN o.id IS NULL THEN 0 ELSE 1 END AS online_sold
          FROM seats s
          LEFT JOIN tickets t ON t.seat_id = s.id AND t.show_id = ? AND t.show_date = ?
+         LEFT JOIN online_sold_seats o ON o.seat_id = s.id AND o.show_id = ? AND o.show_date = ?
          WHERE s.hall_id = ? ORDER BY s.y, s.x`
       )
-      .all(id, showDate, show.hall_id);
+      .all(id, showDate, id, showDate, show.hall_id);
     const ticketTypes = db.prepare('SELECT * FROM show_ticket_types WHERE show_id = ? ORDER BY sort_order, id').all(id);
     return { show, seats, ticketTypes, show_date: showDate };
   });

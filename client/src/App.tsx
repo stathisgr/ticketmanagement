@@ -10,8 +10,9 @@ import Shows from './pages/Shows';
 import Reports from './pages/Reports';
 import Customers from './pages/Customers';
 import CheckIn from './pages/CheckIn';
+import Online from './pages/Online';
 
-type View = 'pos' | 'seats' | 'checkin' | 'till' | 'reports' | 'customers' | 'halls' | 'shows' | 'settings';
+type View = 'pos' | 'seats' | 'checkin' | 'till' | 'reports' | 'customers' | 'halls' | 'shows' | 'online' | 'settings';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -78,6 +79,7 @@ export default function App() {
     { id: 'customers', label: 'Πελάτες', show: true, managerOnly: true },
     { id: 'shows', label: 'Πρόγραμμα', show: showHalls, managerOnly: true },
     { id: 'halls', label: 'Αίθουσες', show: showHalls, managerOnly: true },
+    { id: 'online', label: 'Online', show: showHalls, managerOnly: true },
     { id: 'settings', label: 'Ρυθμίσεις', show: true, managerOnly: true },
   ];
 
@@ -119,6 +121,7 @@ export default function App() {
         {view === 'customers' && user.role === 'manager' && <Customers />}
         {view === 'shows' && user.role === 'manager' && <Shows />}
         {view === 'halls' && user.role === 'manager' && <Halls />}
+        {view === 'online' && user.role === 'manager' && <Online />}
         {view === 'settings' && user.role === 'manager' && <Settings onSaved={loadVenue} />}
       </main>
     </div>

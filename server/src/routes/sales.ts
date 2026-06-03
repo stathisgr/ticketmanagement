@@ -149,6 +149,11 @@ export default async function salesRoutes(app: FastifyInstance) {
           if (!seat || seat.kind !== 'seat') throw new Error('Μη έγκυρη θέση');
           const show = db.prepare('SELECT * FROM shows WHERE id = ?').get(stt.show_id) as any;
           const showDate = body.show_date ?? (show?.valid_from ?? show?.starts_at ?? '').slice(0, 10);
+          // Guard: η θέση μπορεί να έχει πουληθεί online (κατέβηκε με sync).
+          const onlineTaken = db.prepare(
+            'SELECT 1 FROM online_sold_seats WHERE show_id = ? AND show_date = ? AND seat_id = ?'
+          ).get(stt.show_id, showDate, seat.id);
+          if (onlineTaken) throw new Error(`Η θέση ${seat.display_name ?? seat.id} έχει πουληθεί online`);
           const seatTt = stt.ticket_type_id ? db.prepare('SELECT * FROM ticket_types WHERE id = ?').get(stt.ticket_type_id) : null;
 
           const lineTotal = +Number(stt.price).toFixed(2);

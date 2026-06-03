@@ -93,14 +93,21 @@ Deno.serve(async (req) => {
     })));
 
     // Viva order
-    const viva = new Viva();
-    const { orderCode, checkoutUrl } = await viva.createOrder(amountCents, {
-      customerTrns: `${show.title}`, merchantTrns: `Order ${order.id}`,
-      email: customer.email, fullName: customer.name, phone: customer.phone,
-    });
-    await db.from("orders").update({ viva_order_code: orderCode }).eq("id", order.id);
-
-    return json({ orderId: order.id, orderCode, checkoutUrl, statusToken: holdToken });
+    try {
+      const viva = new Viva();
+      const { orderCode, checkoutUrl } = await viva.createOrder(amountCents, {
+        customerTrns: `${show.title}`, merchantTrns: `Order ${order.id}`,
+        email: customer.email, fullName: customer.name, phone: customer.phone,
+      });
+      await db.from("orders").update({ viva_order_code: orderCode }).eq("id", order.id);
+      return json({ orderId: order.id, orderCode, checkoutUrl, statusToken: holdToken });
+    } catch (ve) {
+      // Rollback ώστε να μην κολλήσουν οι θέσεις αν αποτύχει το Viva.
+      await db.from("seat_holds").delete().eq("hold_token", holdToken);
+      await db.from("order_items").delete().eq("order_id", order.id);
+      await db.from("orders").delete().eq("id", order.id);
+      return json({ error: "Πρόβλημα με την πληρωμή (Viva): " + String((ve as Error).message) }, 502);
+    }
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 500);
   }
