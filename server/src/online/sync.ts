@@ -328,9 +328,9 @@ export async function pull(): Promise<{ pulled: number; importedSales: number; p
         body: JSON.stringify({ title: meta.title, image_url: meta.poster_url ?? null, description: meta.description ?? null }),
       });
     }
-    // (α) ΑΝΕΒΑΣΜΑ: θέσεις που πούλησε το ταμείο για αυτή την ημ/νία → sold(box_office) στο cloud.
+    // (α) ΑΝΕΒΑΣΜΑ: θέσεις που πούλησε το ταμείο (ΕΝΕΡΓΑ εισιτήρια) → sold(box_office) στο cloud.
     const soldLocal = db.prepare(
-      'SELECT DISTINCT seat_id FROM tickets WHERE show_id = ? AND show_date = ? AND seat_id IS NOT NULL'
+      'SELECT DISTINCT seat_id FROM tickets WHERE show_id = ? AND show_date = ? AND seat_id IS NOT NULL AND cancelled_at IS NULL'
     ).all(pub.show_id, pub.show_date) as any[];
     const soldIds = soldLocal.map((r) => r.seat_id);
     if (soldIds.length) {
@@ -338,6 +338,24 @@ export async function pull(): Promise<{ pulled: number; importedSales: number; p
         method: 'PATCH', headers: headers(c, { Prefer: 'return=minimal' }),
         body: JSON.stringify({ status: 'sold', sold_channel: 'box_office' }),
       });
+    }
+    // (α2) ΑΠΕΛΕΥΘΕΡΩΣΗ: θέσεις που ΑΚΥΡΩΘΗΚΑΝ τοπικά (ταμείου ή online) και δεν έχουν πια ενεργό
+    //      εισιτήριο → ξανα-ελευθερώνονται στο cloud ώστε να ξαναπωλούνται online.
+    const cancelledLocal = db.prepare(
+      `SELECT DISTINCT t.seat_id FROM tickets t
+        WHERE t.show_id = ? AND t.show_date = ? AND t.seat_id IS NOT NULL AND t.cancelled_at IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM tickets a WHERE a.seat_id = t.seat_id AND a.show_id = t.show_id
+                          AND a.show_date = t.show_date AND a.cancelled_at IS NULL)`
+    ).all(pub.show_id, pub.show_date) as any[];
+    const freeIds = cancelledLocal.map((r) => r.seat_id);
+    if (freeIds.length) {
+      await rest(c, `seats?show_id=eq.${pub.cloud_show_id}&local_seat_id=in.(${freeIds.join(',')})`, {
+        method: 'PATCH', headers: headers(c, { Prefer: 'return=minimal' }),
+        body: JSON.stringify({ status: 'free', sold_channel: null }),
+      });
+      // καθάρισμα και από τον τοπικό πίνακα online_sold_seats (χρωματισμός ταμείου)
+      const del = db.prepare(`DELETE FROM online_sold_seats WHERE show_id = ? AND show_date = ? AND seat_id IN (${freeIds.join(',')})`);
+      del.run(pub.show_id, pub.show_date);
     }
     // (β) ΚΑΤΕΒΑΣΜΑ: online πουλημένες θέσεις (sold_channel=online) με το local_seat_id τους.
     const rows = await rest(c,
