@@ -5,7 +5,7 @@ import { printTickets } from '../components/printTicket';
 import VivaPay from '../components/VivaPay';
 
 interface CartLine { type: TicketType; qty: number; }
-interface SaleResult { saleId: number; total: number; tickets: { preview: string }[]; receiptFile?: string | null; printTicket?: boolean; }
+interface SaleResult { saleId: number; total: number; tickets: { preview: string }[]; receiptFile?: string | null; printTicket?: boolean; fiscal?: { ok: boolean; mark?: string; error?: string } | null; }
 
 const PAYMENTS: { id: PaymentMethod; label: string; color: string }[] = [
   { id: 'cash', label: 'Μετρητά', color: 'bg-green-600' },
@@ -144,6 +144,9 @@ export default function POS() {
         {result && (
           <div className="mt-3 border-t pt-2 overflow-auto max-h-44">
             <div className="text-green-700 font-medium text-sm">✓ Πώληση #{result.saleId} — {result.total.toFixed(2)} €{result.receiptFile ? ' (απόδειξη στάλθηκε)' : ''}</div>
+            {result.fiscal && (result.fiscal.ok
+              ? <div className="text-xs text-slate-600">ΜΑΡΚ: {result.fiscal.mark}</div>
+              : <div className="text-xs text-red-600">⚠ Πάροχος: {result.fiscal.error ?? 'αποτυχία έκδοσης'}</div>)}
             {result.tickets.map((t, i) => (<pre key={i} className="bg-gray-50 border rounded p-2 mt-1 text-[10px] whitespace-pre-wrap">{t.preview}</pre>))}
           </div>
         )}

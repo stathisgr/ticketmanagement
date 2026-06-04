@@ -13,16 +13,18 @@ export interface ParsedLine {
   align?: 'left' | 'center' | 'right';
   bold?: boolean;
   qr?: boolean;
+  qrMark?: boolean;                    // QR του παρόχου (myDATA) — [qrmark]
 }
 
 export function parseLine(raw: string): ParsedLine {
   let s = raw;
   const out: ParsedLine = { text: '' };
-  const tokenRe = /^\s*\[(s[1-4]|c|l|r|b|qr)\]/i;
+  const tokenRe = /^\s*\[(s[1-4]|c|l|r|b|qrmark|qr)\]/i;
   let m: RegExpMatchArray | null;
   while ((m = s.match(tokenRe))) {
     const tok = m[1].toLowerCase();
-    if (tok === 'qr') out.qr = true;
+    if (tok === 'qrmark') out.qrMark = true;
+    else if (tok === 'qr') out.qr = true;
     else if (tok[0] === 's') out.size = Number(tok[1]);
     else if (tok === 'c') out.align = 'center';
     else if (tok === 'l') out.align = 'left';
@@ -40,7 +42,7 @@ export function stripMarkup(text: string): string {
     .split('\n')
     .map((l) => {
       const p = parseLine(l);
-      return p.qr ? '[QR]' : p.text;
+      return p.qrMark ? '[QR ΜΑΡΚ]' : p.qr ? '[QR]' : p.text;
     })
     .join('\n');
 }

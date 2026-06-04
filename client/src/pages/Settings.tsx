@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api, getToken, type TicketType, type Venue, type FiscalConfig, type PrintTemplate, type Printer, type Station } from '../api';
 
-type Tab = 'business' | 'printers' | 'ticket' | 'types' | 'online';
+type Tab = 'business' | 'printers' | 'documents' | 'ticket' | 'types' | 'online';
 
 export default function Settings({ onSaved }: { onSaved?: () => void }) {
   const [tab, setTab] = useState<Tab>('business');
   const tabs: { id: Tab; label: string }[] = [
     { id: 'business', label: 'Επιχείρηση' },
     { id: 'printers', label: 'Εκτυπωτές' },
+    { id: 'documents', label: 'Παραστατικά' },
     { id: 'ticket', label: 'Φόρμες' },
     { id: 'types', label: 'Τύποι Εισιτηρίων' },
     { id: 'online', label: 'Online Ρυθμίσεις' },
@@ -24,6 +25,7 @@ export default function Settings({ onSaved }: { onSaved?: () => void }) {
       </div>
       {tab === 'business' && <BusinessTab onSaved={onSaved} />}
       {tab === 'printers' && <PrintersTab />}
+      {tab === 'documents' && <DocumentsTab />}
       {tab === 'ticket' && <TicketFormTab />}
       {tab === 'types' && <TypesTab />}
       {tab === 'online' && <OnlineTab />}
@@ -129,9 +131,14 @@ function OnlineTab() {
             <L label="Smart Checkout — Client Secret" full><input type="password" className="inp" value={posCfg.smartClientSecret ?? ''} onChange={(e) => setPosCfg({ ...posCfg, smartClientSecret: e.target.value })} /></L>
             <L label="POS (Cloud Terminal) — Client ID" full><input className="inp" value={posCfg.posClientId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, posClientId: e.target.value })} /></L>
             <L label="POS — Client Secret" full><input type="password" className="inp" value={posCfg.posClientSecret ?? ''} onChange={(e) => setPosCfg({ ...posCfg, posClientSecret: e.target.value })} /></L>
-            <L label="Terminal ID (φυσικό POS)"><input className="inp" value={posCfg.terminalId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, terminalId: e.target.value })} /></L>
-            <L label="Source code (προαιρ.)"><input className="inp" value={posCfg.sourceCode ?? ''} onChange={(e) => setPosCfg({ ...posCfg, sourceCode: e.target.value })} /></L>
+            <L label="Terminal ID (φυσικό POS / SoftPOS)"><input className="inp" value={posCfg.terminalId ?? ''} onChange={(e) => setPosCfg({ ...posCfg, terminalId: e.target.value })} /></L>
+            <L label="Source code ΤΑΜΕΙΟΥ"><input className="inp" placeholder="π.χ. 3859 (ή κενό = Default)" value={posCfg.sourceCode ?? ''} onChange={(e) => setPosCfg({ ...posCfg, sourceCode: e.target.value })} /></L>
+            <L label="Source code ONLINE (πληροφοριακό)"><input className="inp" placeholder="ορίζεται στο cloud" value={posCfg.onlineSourceCode ?? ''} onChange={(e) => setPosCfg({ ...posCfg, onlineSourceCode: e.target.value })} /></L>
           </div>
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-1">
+            ⚠️ <b>Source code ΤΑΜΕΙΟΥ</b>: η πηγή Viva για τις πληρωμές στο ταμείο (π.χ. ο κωδικός χώρου Physical Payments). Άφησέ το <b>κενό</b> για την προεπιλεγμένη πηγή (web2/success – δεν κάνει redirect στο online). Αυτό χρησιμοποιεί η εφαρμογή για το ταμείο.<br />
+            <b>Source code ONLINE</b>: μόνο πληροφοριακό εδώ — το online χρησιμοποιεί τη δική του πηγή (με Success URL → booking site) που ορίζεται στο cloud (Supabase secret <code>VIVA_SOURCE_CODE</code>), όχι από αυτό το πεδίο. Έτσι ξεχωρίζουν τα δύο κανάλια πληρωμών.
+          </p>
           <div className="flex gap-2 mt-3">
             <button onClick={testPos} className="bg-blue-600 text-white px-4 py-1.5 rounded">Δοκιμή σύνδεσης</button>
             <button onClick={testCheckout} className="bg-indigo-600 text-white px-4 py-1.5 rounded">Δοκιμή πληρωμής 1€</button>
@@ -320,8 +327,7 @@ function PrintersTab() {
       const r = await api.post<{ ok: boolean; error?: string; lookups?: any }>('/api/fiscal/provider/test', {});
       if (r.ok) {
         const it = r.lookups?.invoiceTypes?.jsonData?.idNames ?? r.lookups?.invoiceTypes?.idNames ?? [];
-        setMsg(`✓ Σύνδεση ΟΚ με τον πάροχο. Βρέθηκαν ${Array.isArray(it) ? it.length : '—'} τύποι παραστατικών — δες την κονσόλα του server για VAT/Payment IDs.`);
-        console.log('RapidSign lookups:', r.lookups);
+        setMsg(`✓ Σύνδεση ΟΚ με τον πάροχο (${Array.isArray(it) ? it.length : '—'} τύποι παραστατικών). Ρύθμισε τα παραστατικά στην καρτέλα «Παραστατικά».`);
       } else setMsg('✗ ' + (r.error ?? 'Αποτυχία σύνδεσης'));
     } catch (e) { setMsg((e as Error).message); }
   }
@@ -462,8 +468,10 @@ function PrintersTab() {
                 <L label="ΑΦΜ εκδότη"><input className="inp" value={prov.issuerVat ?? ''} onChange={(e) => setProv({ ...prov, issuerVat: e.target.value })} /></L>
                 <L label="Σειρά (Series)"><input className="inp" placeholder="π.χ. ΑΠΥ" value={prov.series ?? ''} onChange={(e) => setProv({ ...prov, series: e.target.value })} /></L>
               </div>
-              <button onClick={testProvider} className="mt-3 bg-blue-600 text-white px-4 py-1.5 rounded">Δοκιμή σύνδεσης</button>
-              <p className="text-xs text-gray-500 mt-1">Πρώτα Αποθήκευση, μετά Δοκιμή. Η δοκιμή επαληθεύει τα credentials και τραβά τους τύπους παραστατικών/ΦΠΑ/πληρωμών (στην κονσόλα του server) για να ρυθμίσουμε τα mappings.</p>
+              <div className="flex gap-2 mt-3">
+                <button onClick={testProvider} className="bg-blue-600 text-white px-4 py-1.5 rounded">Δοκιμή σύνδεσης</button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Πρώτα Αποθήκευση, μετά «Δοκιμή σύνδεσης». Η ρύθμιση των παραστατικών (ΑΠΥ, Ακυρωτικό) και οι παράμετροι myDATA γίνονται στην καρτέλα <b>«Παραστατικά»</b>.</p>
             </div>
           )}
           <div><button onClick={saveFiscal} className="mt-3 bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση</button></div>
@@ -505,6 +513,183 @@ function PrintersTab() {
               <button onClick={() => setEditing(null)} className="px-4 py-2 rounded border">Άκυρο</button>
               <button onClick={savePrinter} className="px-4 py-2 rounded bg-slate-800 text-white">Αποθήκευση</button>
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- Παραστατικά (myDATA) — ρύθμιση ανά παραστατικό ---------------- */
+function DocumentsTab() {
+  const [cfg, setCfg] = useState<any | null>(null);   // πλήρες config παρόχου (creds + docs)
+  const [lookups, setLookups] = useState<any>(null);
+  const [lastGuid, setLastGuid] = useState('');
+  const [lastMark, setLastMark] = useState('');
+  const [docsList, setDocsList] = useState<any[]>([]);
+  const [rawView, setRawView] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    api.get<FiscalConfig>('/api/fiscal').then((fc) => {
+      let c: any = {}; try { c = fc.config ? JSON.parse(fc.config) : {}; } catch { /* ignore */ }
+      setCfg(c);
+    }).catch((e) => setMsg((e as Error).message));
+    api.get<any[]>('/api/fiscal/documents').then(setDocsList).catch(() => {});
+  }, []);
+  if (!cfg) return <div className="text-gray-400">Φόρτωση…</div>;
+
+  const hasProvider = !!cfg.username;
+  const apy = (cfg.docs && cfg.docs.apy) || {};
+  const credit = (cfg.docs && cfg.docs.credit) || {};
+  const setApy = (k: string, v: any) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), apy: { ...((c.docs ?? {}).apy ?? {}), [k]: v } } }));
+  const setCredit = (k: string, v: any) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), credit: { ...((c.docs ?? {}).credit ?? {}), [k]: v } } }));
+
+  async function save() {
+    setMsg('');
+    try { await api.put('/api/fiscal', { config: cfg }); setMsg('✓ Αποθηκεύτηκαν οι ρυθμίσεις παραστατικών'); }
+    catch (e) { setMsg((e as Error).message); }
+  }
+  async function loadLookups() {
+    setMsg('Φόρτωση λιστών παρόχου…');
+    try { setLookups(await api.get('/api/fiscal/provider/lookups')); setMsg('✓ Φορτώθηκαν οι λίστες του παρόχου'); }
+    catch (e) { setMsg((e as Error).message); }
+  }
+  async function loadDocs() {
+    try { setDocsList(await api.get<any[]>('/api/fiscal/documents')); }
+    catch (e) { setMsg((e as Error).message); }
+  }
+  async function testInvoice() {
+    setMsg('Δοκιμαστική έκδοση ΑΠΥ…');
+    try {
+      const r = await api.post<{ ok: boolean; error?: string; mark?: string; qrCode?: string; guid?: string }>('/api/fiscal/provider/test-invoice', {});
+      if (r.ok) { setLastGuid(r.guid ?? ''); setLastMark(r.mark ?? ''); setMsg(`✓ Εκδόθηκε δοκιμαστικό ΑΠΥ — MARK ${r.mark}${r.guid ? ' · guid ' + r.guid : ''}. ${r.qrCode ? 'QR: ' + r.qrCode : ''}`); }
+      else setMsg('✗ ' + (r.error ?? 'Αποτυχία έκδοσης'));
+    } catch (e) { setMsg((e as Error).message); }
+  }
+  async function testCredit() {
+    if (!lastMark) { setMsg('Κάνε πρώτα «Δοκιμή έκδοσης ΑΠΥ» για να πάρεις ΜΑΡΚ.'); return; }
+    setMsg('Δοκιμαστική έκδοση Πιστωτικού…');
+    try {
+      const r = await api.post<{ ok: boolean; error?: string; mark?: string }>('/api/fiscal/provider/test-credit', { mark: lastMark });
+      setMsg(r.ok ? `✓ Εκδόθηκε Πιστωτικό για το ΜΑΡΚ ${lastMark} — νέο ΜΑΡΚ ${r.mark}` : '✗ ' + (r.error ?? 'Αποτυχία έκδοσης πιστωτικού'));
+    } catch (e) { setMsg((e as Error).message); }
+  }
+  async function testVoid() {
+    if (!lastGuid) { setMsg('Κάνε πρώτα «Δοκιμή έκδοσης ΑΠΥ» για να πάρεις guid.'); return; }
+    setMsg('Δοκιμαστική ακύρωση (void)…');
+    try {
+      const r = await api.post<{ ok: boolean; error?: string }>('/api/fiscal/provider/void-test', { guid: lastGuid, reason: 'Δοκιμή ακύρωσης' });
+      setMsg(r.ok ? `✓ Ακυρώθηκε (void) το παραστατικό (guid ${lastGuid})` : '✗ ' + (r.error ?? 'Αποτυχία void'));
+    } catch (e) { setMsg((e as Error).message); }
+  }
+
+  const Sel = ({ list, value, onChange, fallback }: { list?: any[]; value: any; onChange: (v: number | null) => void; fallback: number }) =>
+    list ? (
+      <select className="inp" value={value ?? fallback} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}>
+        <option value="">—</option>
+        {list.map((x: any) => <option key={x.id} value={x.id}>{(x.twoLetterCode || x.myDataCode) ? `${x.twoLetterCode || x.myDataCode} — ` : ''}{x.name}</option>)}
+      </select>
+    ) : <input className="inp" type="number" value={value ?? fallback} onChange={(e) => onChange(Number(e.target.value))} />;
+
+  return (
+    <div className="max-w-3xl">
+      <Msg text={msg} />
+      {!hasProvider && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded text-sm mb-3">
+          Δεν έχει ρυθμιστεί πάροχος. Πήγαινε στην καρτέλα <b>«Εκτυπωτές» → Λειτουργία έκδοσης → «Εισιτήριο μέσω Παρόχου»</b>, βάλε τα στοιχεία σύνδεσης και κάνε «Δοκιμή σύνδεσης». Μετά γύρνα εδώ.
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="font-semibold">Παραστατικά &amp; παράμετροι myDATA</h3>
+        <button onClick={loadLookups} className="ml-auto bg-slate-600 text-white px-4 py-1.5 rounded text-sm">Φόρτωση λιστών παρόχου</button>
+      </div>
+      <p className="text-xs text-gray-500 mb-4">Πάτα «Φόρτωση λιστών παρόχου» για να γεμίσουν οι επιλογές με τους επίσημους κωδικούς (τύποι, κατηγορίες/χαρακτηρισμοί εσόδου, acquirers). Ο συντελεστής ΦΠΑ αντιστοιχίζεται αυτόματα ανά τύπο εισιτηρίου (24%→1, 13%→2, 6%→3, 0%→7).</p>
+
+      {/* ΚΑΡΤΑ: ΑΠΥ */}
+      <div className="border rounded-lg p-4 mb-4 bg-white">
+        <div className="flex items-center mb-2">
+          <h4 className="font-semibold">Απόδειξη Παροχής Υπηρεσιών (ΑΠΥ)</h4>
+          <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">έκδοση σε κάθε πώληση</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <L label="Τύπος παραστατικού"><Sel list={lookups?.invoiceTypes} value={apy.invoiceTypeId} fallback={20} onChange={(v) => setApy('invoiceTypeId', v)} /></L>
+          <L label="Σειρά"><input className="inp" placeholder="ΑΠY" value={apy.series ?? cfg.series ?? 'ΑΠY'} onChange={(e) => setApy('series', e.target.value)} /></L>
+          <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={apy.incomeCatId} fallback={2} onChange={(v) => setApy('incomeCatId', v)} /></L>
+          <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={apy.incomeValId} fallback={8} onChange={(v) => setApy('incomeValId', v)} /></L>
+          <L label="Πληρωμή · Μετρητά (PaymentId)"><input className="inp" type="number" value={apy.paymentCashId ?? 3} onChange={(e) => setApy('paymentCashId', Number(e.target.value))} /></L>
+          <L label="Πληρωμή · Κάρτα (PaymentId)"><input className="inp" type="number" value={apy.paymentCardId ?? 7} onChange={(e) => setApy('paymentCardId', Number(e.target.value))} /></L>
+          <L label="Acquirer κάρτας"><Sel list={lookups?.acquirers} value={apy.acquirerId} fallback={0} onChange={(v) => setApy('acquirerId', v)} /></L>
+          <L label="Κατάσταση πληρωμής (PaymentStatus)">
+            <select className="inp" value={apy.paymentStatus ?? 2} onChange={(e) => setApy('paymentStatus', Number(e.target.value))}>
+              <option value={2}>2 — Αποδεκτή (default που δέχεται ο πάροχος)</option>
+              <option value={1}>1 — Κανονική</option>
+            </select>
+          </L>
+        </div>
+        <div className="flex gap-2 mt-3">
+          <button onClick={testInvoice} className="bg-emerald-600 text-white px-4 py-1.5 rounded text-sm">Δοκιμή έκδοσης ΑΠΥ</button>
+        </div>
+      </div>
+
+      {/* ΚΑΡΤΑ: Πιστωτικό / Αντιλογιστικό */}
+      <div className="border rounded-lg p-4 mb-4 bg-white">
+        <div className="flex items-center mb-2">
+          <h4 className="font-semibold">Πιστωτικό / Αντιλογιστικό (ακύρωση)</h4>
+          <span className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">ακύρωση εισιτηρίου</span>
+        </div>
+        <p className="text-xs text-gray-500 mb-2">Όταν ακυρώνεται εισιτήριο που έχει διαβιβαστεί μέσω παρόχου, εκδίδεται <b>Πιστωτικό</b> που αναφέρεται στο ΜΑΡΚ του αρχικού ΑΠΥ (αντιλογισμός — myDATA). Το ταμείο λειτουργεί όπως πάντα· απλώς όταν υπάρχει πάροχος εκδίδεται και Πιστωτικό.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <L label="Τύπος παραστατικού (Πιστωτικό)"><Sel list={lookups?.invoiceTypes} value={credit.invoiceTypeId} fallback={22} onChange={(v) => setCredit('invoiceTypeId', v)} /></L>
+          <L label="Σειρά"><input className="inp" placeholder="ΠΑΠΥ" value={credit.series ?? 'ΠΑΠΥ'} onChange={(e) => setCredit('series', e.target.value)} /></L>
+          <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={credit.incomeCatId} fallback={2} onChange={(v) => setCredit('incomeCatId', v)} /></L>
+          <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={credit.incomeValId} fallback={8} onChange={(v) => setCredit('incomeValId', v)} /></L>
+        </div>
+        <div className="flex gap-2 mt-3 flex-wrap">
+          <button onClick={testCredit} disabled={!lastMark} className="bg-red-600 text-white px-4 py-1.5 rounded text-sm disabled:opacity-40">Δοκιμή Πιστωτικού (ΜΑΡΚ)</button>
+          <button onClick={testVoid} disabled={!lastGuid} className="bg-orange-600 text-white px-4 py-1.5 rounded text-sm disabled:opacity-40">Δοκιμή ακύρωσης (void / guid)</button>
+          {!lastMark && <span className="text-xs text-gray-500 self-center">Κάνε πρώτα «Δοκιμή έκδοσης ΑΠΥ».</span>}
+        </div>
+        <p className="text-xs text-gray-500 mt-1">Αν το Πιστωτικό (11.4) δεν περνά στο demo, η <b>ακύρωση (void)</b> με το guid είναι ο εναλλακτικός μηχανισμός ακύρωσης του παρόχου.</p>
+      </div>
+
+      <button onClick={save} className="bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση παραστατικών</button>
+
+      {/* ── Διάγνωση: τελευταία διαβιβασθέντα παραστατικά ── */}
+      <div className="mt-6 border-t pt-4">
+        <div className="flex items-center mb-2">
+          <h4 className="font-semibold">Τελευταία παραστατικά (διάγνωση)</h4>
+          <button onClick={loadDocs} className="ml-auto text-sm bg-slate-600 text-white px-3 py-1 rounded">Ανανέωση</button>
+        </div>
+        <p className="text-xs text-gray-500 mb-2">Τι διαβιβάστηκε στον πάροχο ανά πώληση. Αν είναι κενό, η πώληση δεν έφτασε στον πάροχο (έλεγξε ότι η Λειτουργία έκδοσης = «μέσω Παρόχου»). «error» = δες την απάντηση.</p>
+        <table className="w-full border text-sm bg-white">
+          <thead className="bg-gray-100"><tr>
+            <th className="text-left p-2">Πώληση</th><th className="text-left p-2">Τύπος</th><th className="text-left p-2">Κατάσταση</th>
+            <th className="text-left p-2">ΜΑΡΚ</th><th className="text-left p-2">Ημ/νία</th><th></th>
+          </tr></thead>
+          <tbody>
+            {docsList.map((d) => (
+              <tr key={d.id} className="border-t">
+                <td className="p-2">#{d.sale_id}</td>
+                <td className="p-2">{d.role === 'credit' ? 'Πιστωτικό' : 'ΑΠΥ'}</td>
+                <td className="p-2">{d.status === 'transmitted' ? <span className="text-green-700">✓ διαβιβάστηκε</span> : d.status === 'cancelled' ? <span className="text-gray-500">ακυρωμένο</span> : <span className="text-red-600">✗ error</span>}</td>
+                <td className="p-2 font-mono text-xs">{d.mark || '—'}</td>
+                <td className="p-2">{(d.created_at ?? '').replace('T', ' ').slice(0, 16)}</td>
+                <td className="p-2 text-right"><button onClick={() => setRawView(d.raw ?? '(κενό)')} className="text-blue-600 text-xs">απάντηση</button></td>
+              </tr>
+            ))}
+            {docsList.length === 0 && <tr><td colSpan={6} className="p-3 text-gray-400">Καμία διαβίβαση ακόμη.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      {rawView != null && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4" onClick={() => setRawView(null)}>
+          <div className="bg-white rounded-xl p-5 w-[40rem] max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-bold mb-2">Απάντηση παρόχου</h3>
+            <pre className="bg-gray-50 border rounded p-2 text-[11px] whitespace-pre-wrap break-all">{rawView}</pre>
+            <div className="text-right mt-3"><button onClick={() => setRawView(null)} className="px-4 py-2 rounded bg-slate-800 text-white">Κλείσιμο</button></div>
           </div>
         </div>
       )}

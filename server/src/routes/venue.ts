@@ -1,7 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import { db } from '../db.js';
 import { authenticate, requireManager } from '../auth.js';
-import { RapidSignProvider, type FiscalEnv } from '../fiscal/rapidsign.js';
+import { RapidSignProvider, vatCatIdFromRate, type FiscalEnv } from '../fiscal/rapidsign.js';
 import { VivaProvider, type VivaEnv } from '../fiscal/viva.js';
 
 export default async function venueRoutes(app: FastifyInstance) {
@@ -131,6 +132,114 @@ export default async function venueRoutes(app: FastifyInstance) {
     });
     const res = await provider.testConnection();
     return res;
+  });
+
+  // Δοκιμαστική ΕΚΔΟΣΗ παραστατικού (ΑΠΥ) — επιβεβαιώνει όλη την αλυσίδα (auth→refresh→PostInvoice1155).
+  // Επιστρέφει MARK / QR. ΠΡΟΣΟΧΗ: χρησιμοποιεί το ΑΦΜ εκδότη που έχει ρυθμιστεί (demo: 619333103).
+  app.post('/api/fiscal/provider/test-invoice', { preHandler: requireManager }, async (_req, reply) => {
+    const row = db.prepare('SELECT * FROM fiscal_config WHERE id = 1').get() as any;
+    let cfg: any = {};
+    try { cfg = JSON.parse(row?.config ?? '{}'); } catch { /* ignore */ }
+    if (!cfg.username || !cfg.password || !cfg.activationCode)
+      return reply.code(400).send({ error: 'Συμπλήρωσε & αποθήκευσε username / password / activationCode πρώτα.' });
+    const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
+    const apy = (cfg.docs && cfg.docs.apy) || {};
+    const provider = new RapidSignProvider({
+      env: (cfg.env as FiscalEnv) === 'prod' ? 'prod' : 'dev',
+      username: cfg.username, password: cfg.password, activationCode: cfg.activationCode,
+    });
+    const res = await provider.postInvoice({
+      invoiceTypeId: Number(apy.invoiceTypeId) || 20,
+      series: apy.series || cfg.series || 'ΑΠY', aa: String(Date.now() % 1000000), counter: 1,
+      issueDate: new Date().toISOString(), currencyId: 47,
+      issuer: {
+        vatNumber: cfg.issuerVat || venue?.vat_number || '619333103', countryId: 87, branch: Number(apy.branch) || 0,
+        name: venue?.name || 'MAT S.A.', activity: '', taxOffice: venue?.tax_office || '',
+        phone: venue?.phone || '', email: venue?.email || '',
+        address: { City: venue?.city || '', PostalCode: venue?.postal_code || '', Street: venue?.address || '', Number: '' },
+      },
+      lines: [{
+        code: 'TEST', name: 'Δοκιμαστικό εισιτήριο', qty: 1, unitPriceInclVat: 12.4,
+        netValue: 10.0, vatAmount: 2.4, vatCatId: vatCatIdFromRate(24),
+        incomeCatId: Number.isFinite(Number(apy.incomeCatId)) ? Number(apy.incomeCatId) : 2,
+        incomeValId: Number.isFinite(Number(apy.incomeValId)) ? Number(apy.incomeValId) : 8,
+      }],
+      payments: [{ payGuid: randomUUID(), paymentId: Number(apy.paymentCashId) || 3, net: 10.0, vat: 2.4, amount: 12.4,
+        paymentStatus: Number(apy.paymentStatus) || 2, acquirerId: Number(apy.acquirerId) || 122 }],
+    });
+    return res;
+  });
+
+  // Διάγνωση: τα τελευταία παραστατικά που διαβιβάστηκαν (ή απέτυχαν) στον πάροχο.
+  app.get('/api/fiscal/documents', { preHandler: requireManager }, async () => {
+    return db.prepare(
+      `SELECT id, sale_id, role, status, invoice_type_id, series, mark, qr_url, total, created_at, raw
+       FROM fiscal_documents ORDER BY id DESC LIMIT 20`
+    ).all();
+  });
+
+  // Ανάκτηση όλων των λιστών (lookups) του παρόχου — για τη ρύθμιση παραστατικών.
+  app.get('/api/fiscal/provider/lookups', { preHandler: requireManager }, async (_req, reply) => {
+    const row = db.prepare('SELECT * FROM fiscal_config WHERE id = 1').get() as any;
+    let cfg: any = {}; try { cfg = JSON.parse(row?.config ?? '{}'); } catch { /* ignore */ }
+    if (!cfg.username || !cfg.password || !cfg.activationCode)
+      return reply.code(400).send({ error: 'Συμπλήρωσε & αποθήκευσε τα credentials του παρόχου πρώτα.' });
+    try {
+      const provider = new RapidSignProvider({
+        env: (cfg.env as FiscalEnv) === 'prod' ? 'prod' : 'dev',
+        username: cfg.username, password: cfg.password, activationCode: cfg.activationCode,
+      });
+      return await provider.allLookups();
+    } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+  });
+
+  // Δοκιμαστική ΑΚΥΡΩΣΗ (void) παραστατικού με το guid που επέστρεψε η έκδοση.
+  app.post('/api/fiscal/provider/void-test', { preHandler: requireManager }, async (req, reply) => {
+    const { guid, reason } = (req.body ?? {}) as { guid?: string; reason?: string };
+    if (!guid) return reply.code(400).send({ error: 'Δώσε το guid του παραστατικού (από τη δοκιμή έκδοσης).' });
+    const row = db.prepare('SELECT * FROM fiscal_config WHERE id = 1').get() as any;
+    let cfg: any = {}; try { cfg = JSON.parse(row?.config ?? '{}'); } catch { /* ignore */ }
+    const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
+    const provider = new RapidSignProvider({
+      env: (cfg.env as FiscalEnv) === 'prod' ? 'prod' : 'dev',
+      username: cfg.username, password: cfg.password, activationCode: cfg.activationCode,
+    });
+    return provider.voidInvoice(cfg.issuerVat || venue?.vat_number || '619333103', guid, reason || 'Δοκιμή ακύρωσης');
+  });
+
+  // Δοκιμαστική έκδοση ΠΙΣΤΩΤΙΚΟΥ (αντιλογιστικό) που αναφέρεται στο ΜΑΡΚ ενός ΑΠΥ.
+  app.post('/api/fiscal/provider/test-credit', { preHandler: requireManager }, async (req, reply) => {
+    const { mark } = (req.body ?? {}) as { mark?: string };
+    if (!mark) return reply.code(400).send({ error: 'Δώσε το ΜΑΡΚ του αρχικού ΑΠΥ (από τη δοκιμή έκδοσης).' });
+    const row = db.prepare('SELECT * FROM fiscal_config WHERE id = 1').get() as any;
+    let cfg: any = {}; try { cfg = JSON.parse(row?.config ?? '{}'); } catch { /* ignore */ }
+    if (!cfg.username || !cfg.password || !cfg.activationCode)
+      return reply.code(400).send({ error: 'Συμπλήρωσε & αποθήκευσε τα credentials του παρόχου πρώτα.' });
+    const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
+    const cr = (cfg.docs && cfg.docs.credit) || {};
+    const provider = new RapidSignProvider({
+      env: (cfg.env as FiscalEnv) === 'prod' ? 'prod' : 'dev',
+      username: cfg.username, password: cfg.password, activationCode: cfg.activationCode,
+    });
+    return provider.postInvoice({
+      invoiceTypeId: Number(cr.invoiceTypeId) || 22, // 11.4 Πιστωτικό Στοιχ. Λιανικής
+      series: cr.series || 'ΠΑΠΥ', aa: String(Date.now() % 1000000), counter: 1,
+      correlatedMarks: [String(mark)],
+      issueDate: new Date().toISOString(), currencyId: 47,
+      issuer: {
+        vatNumber: cfg.issuerVat || venue?.vat_number || '619333103', countryId: 87, branch: 0,
+        name: venue?.name || 'MAT S.A.', activity: '', taxOffice: venue?.tax_office || '',
+        phone: venue?.phone || '', email: venue?.email || '',
+        address: { City: venue?.city || '', PostalCode: venue?.postal_code || '', Street: venue?.address || '', Number: '' },
+      },
+      lines: [{
+        code: 'TEST', name: 'Δοκιμαστικό πιστωτικό', qty: 1, unitPriceInclVat: 12.4,
+        netValue: 10.0, vatAmount: 2.4, vatCatId: vatCatIdFromRate(24),
+        incomeCatId: Number.isFinite(Number(cr.incomeCatId)) ? Number(cr.incomeCatId) : 2,
+        incomeValId: Number.isFinite(Number(cr.incomeValId)) ? Number(cr.incomeValId) : 8,
+      }],
+      payments: [{ payGuid: randomUUID(), paymentId: 3, net: 10.0, vat: 2.4, amount: 12.4 }],
+    });
   });
 
   // ---- POS / Κάρτες (Viva) ----

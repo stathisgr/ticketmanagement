@@ -163,6 +163,30 @@ CREATE TABLE IF NOT EXISTS tickets (
   cancel_approver TEXT             -- Ονοματεπώνυμο Εγκρίνοντος (διορθώσεις περασμένων εκδηλώσεων)
 );
 
+-- Παραστατικά παρόχου (myDATA) ανά πώληση: τι διαβιβάστηκε + στοιχεία απόδειξης (ΜΑΡΚ/QR/AADE).
+-- role: 'sale' = ΑΠΥ, 'credit' = Πιστωτικό/Αντιλογιστικό. Πολλαπλά ανά πώληση (π.χ. ΑΠΥ + Πιστωτικό).
+CREATE TABLE IF NOT EXISTS fiscal_documents (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  sale_id         INTEGER REFERENCES sales(id) ON DELETE CASCADE,
+  role            TEXT NOT NULL DEFAULT 'sale',
+  provider        TEXT,                       -- π.χ. 'rapidsign'
+  invoice_type_id INTEGER,                    -- π.χ. 20 (ΑΠΥ), 22 (Πιστωτικό Λιανικής)
+  series          TEXT,
+  aa              TEXT,
+  mark            TEXT,                        -- ΜΑΡΚ (αποδεικτικό παραλαβής AADE)
+  uid             TEXT,                        -- invoiceUid
+  auth_code       TEXT,                        -- authentication code
+  qr_url          TEXT,                        -- QR myDATA (AADE) URL
+  qr_provider     TEXT,                        -- QR προεπισκόπησης παρόχου
+  guid            TEXT,                        -- guid παραστατικού (για ακύρωση/void)
+  correlated_mark TEXT,                        -- για Πιστωτικό: ΜΑΡΚ του αρχικού ΑΠΥ
+  status          TEXT NOT NULL DEFAULT 'transmitted',  -- transmitted | cancelled | error
+  net             REAL, vat REAL, total REAL,
+  raw             TEXT,                        -- πλήρης απάντηση παρόχου (audit)
+  created_at      TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_fiscal_docs_sale ON fiscal_documents(sale_id);
+
 -- Ταμειακές κινήσεις (ταμείο)
 CREATE TABLE IF NOT EXISTS till_movements (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,

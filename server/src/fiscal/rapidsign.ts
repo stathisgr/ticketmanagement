@@ -32,18 +32,32 @@ interface Envelope<T = any> {
   token?: string; jsonData?: T; [k: string]: any;
 }
 
-export interface IssueLine { name: string; qty: number; unitPriceInclVat: number; netValue: number; vatAmount: number; vatCatId: number; vatExcCatId?: number | null; }
+export interface IssueLine { code?: string; name: string; qty: number; unitPriceInclVat: number; netValue: number; vatAmount: number; vatCatId: number; vatExcCatId?: number | null; incomeCatId?: number; incomeValId?: number; }
+export interface IssueParty {
+  vatNumber: string; countryId: number; branch: number; name?: string; activity?: string;
+  taxOffice?: string; phone?: string; email?: string; code?: string;
+  address?: { City?: string; PostalCode?: string; Street?: string; Number?: string };
+}
 export interface IssueRequest {
-  invoiceTypeId: number;        // π.χ. 11.2 → InvoiceTypeId από InvoiceTypes
-  series: string; aa: string;
+  invoiceTypeId: number;        // ΑΠΥ = 20 · Πιστωτικό Λιανικής = 22
+  series: string; aa: string; counter?: number;
+  correlatedMarks?: string[];   // για Πιστωτικό/αντιλογιστικό: ΜΑΡΚ του αρχικού παραστατικού
   issueDate: string;            // ISO
-  issuer: { vatNumber: string; countryId: number; branch: number; name?: string; activity?: string; taxOffice?: string; phone?: string; email?: string; address?: any };
+  issuer: IssueParty;
+  counterpart?: IssueParty;     // λιανική: VatNumber 000000000
   lines: IssueLine[];
-  payments: { payGuid: string; paymentId: number; amount: number }[];
+  payments: { payGuid: string; paymentId: number; net?: number; vat?: number; amount: number; acquirerId?: number; tidNsp?: string; paymentStatus?: number }[];
   incomeCatId?: number; incomeValId?: number;
   currencyId: number;
 }
-export interface IssueResult { ok: boolean; uid?: string; mark?: string; authenticationCode?: string; raw?: any; error?: string; }
+export interface IssueResult { ok: boolean; guid?: string; uid?: string; mark?: string; authenticationCode?: string; authCodeMat?: string; qrCode?: string; qrCodeMyData?: string; raw?: any; error?: string; }
+export interface VoidResult { ok: boolean; raw?: any; error?: string; }
+
+/** Χαρτογράφηση συντελεστή ΦΠΑ % → VatCatId (AADE). 24→1,13→2,6→3,17→4,9→5,4→6,0→7. */
+export function vatCatIdFromRate(rate: number): number {
+  const m: Record<number, number> = { 24: 1, 13: 2, 6: 3, 17: 4, 9: 5, 4: 6, 0: 7 };
+  return m[Math.round(rate)] ?? 7;
+}
 
 export class RapidSignProvider {
   private bearer: string | null = null;
@@ -59,14 +73,20 @@ export class RapidSignProvider {
     const text = await res.text();
     let data: Envelope<T>;
     try { data = text ? JSON.parse(text) : {}; } catch { data = { message: text } as any; }
-    if (!res.ok) throw new Error(`RapidSign ${path} HTTP ${res.status}: ${data?.message ?? text?.slice(0, 200)}`);
+    if (!res.ok) {
+      // Πλήρες σώμα (matException.errors / ProblemDetails) για διάγνωση· αλλιώς ένδειξη κενού σώματος.
+      const detail = (text && text.trim()) ? text.slice(0, 900) : `(κενό σώμα — ${res.statusText || 'Bad Request'})`;
+      throw new Error(`RapidSign ${path} HTTP ${res.status}: ${detail}`);
+    }
     return data;
   }
 
   private pickToken(env: Envelope): string | null {
-    // Επιτυχημένη απάντηση: { refreshToken: { token, expires } }
-    return env.refreshToken?.token || env.jsonData?.refreshToken?.token
-      || env.refToken || env.token || env.jsonData?.token || env.jsonData?.accessToken || null;
+    // Authorize → { refToken: { token, expires } } · RefreshToken → { token }
+    return env.refToken?.token || env.jsonData?.refToken?.token
+      || env.refreshToken?.token || env.jsonData?.refreshToken?.token
+      || (typeof env.refToken === 'string' ? env.refToken : null)
+      || env.token || env.jsonData?.token || env.jsonData?.accessToken || null;
   }
 
   /** Authorize → RefreshToken → cache bearer. */
@@ -109,27 +129,44 @@ export class RapidSignProvider {
     }
   }
 
-  /** Έκδοση στοιχείου λιανικής (π.χ. 11.2 ΑΠΥ παροχής υπηρεσιών). IncludesVat=true (τιμές με ΦΠΑ). */
+  /**
+   * Έκδοση στοιχείου λιανικής (ΑΠΥ, InvoiceTypeId=20). IncludesVat=true (τιμές με ΦΠΑ).
+   * Endpoint (επιβεβαιωμένο): /api/v1.1/provider/PostInvoice1155?debug=true
+   * Απόκριση: jsonData.dataLite { mark, invoiceUid, authCode, authCodeMat, qrCode, qrCodeMyData }
+   */
   async postInvoice(req: IssueRequest): Promise<IssueResult> {
     try {
+      const cp = req.counterpart ?? {
+        vatNumber: '000000000', countryId: 87, branch: 0, name: 'Πελάτης λιανικής', code: 'ΛΙΑΝΙΚΗ',
+      };
       const body = {
         Guid: cryptoRandomUUID(),
         TransmissionFailure: false,
+        TransFailure: 0,
         Template: 3,
-        FileType: 0,
+        FileType: 2,
         ShowCounterpart: false,
+        DeferredTransaction: false,
+        ReceiptStatus: 0,
         PaymentStatus: 0,
+        DiscServer: false,
         InvoiceHeader: {
           InvoiceTypeId: req.invoiceTypeId,
           IncludesVat: true,
           Series: req.series,
           Aa: req.aa,
+          Counter: req.counter ?? 1,
           IssueDate: req.issueDate,
           CurrencyId: req.currencyId,
+          ...(req.correlatedMarks && req.correlatedMarks.length
+            ? { CorrelatedMarks: req.correlatedMarks.map((m) => Number(m)).filter((n) => Number.isFinite(n)) }
+            : {}),
+          MultipleConnectedMarksGuid: [],
         },
         Issuer: {
           VatNumber: req.issuer.vatNumber,
-          CountryId: req.issuer.countryId,
+          CountryIdAade: 'GR',
+          CountryId: req.issuer.countryId ?? 87,
           Branch: req.issuer.branch ?? 0,
           Name: req.issuer.name,
           Activity: req.issuer.activity,
@@ -138,35 +175,136 @@ export class RapidSignProvider {
           Email: req.issuer.email,
           Address: req.issuer.address,
         },
-        InvoiceDetails: req.lines.map((l, i) => ({
-          Line: i + 1,
-          Name: l.name,
-          MUnitId: 1,
-          Qty: l.qty,
-          ItemPrc: l.unitPriceInclVat,
-          TotPrcAfterDisc: +(l.unitPriceInclVat * l.qty).toFixed(2),
-          NetValue: l.netValue,
-          VatAmount: l.vatAmount,
-          VatCatId: l.vatCatId,
-          VatExcCatId: l.vatExcCatId ?? null,
-          IncomeCatId: req.incomeCatId ?? null,
-          IncomeValId: req.incomeValId ?? null,
-        })),
-        PaymentMethods: req.payments.map((p) => ({
-          PayGuid: p.payGuid, PaymentId: p.paymentId, Amount: p.amount, TipAmount: 0.0, PaymentStatus: 0,
-        })),
+        Counterpart: {
+          VatNumber: cp.vatNumber,
+          CountryIdAade: 'GR',
+          CountryId: cp.countryId ?? 87,
+          Branch: cp.branch ?? 0,
+          Code: cp.code ?? '',
+          Name: cp.name,
+          Address: cp.address,
+        },
+        InvoiceDetails: req.lines.map((l, i) => {
+          const tot = +(l.unitPriceInclVat * l.qty).toFixed(2);
+          return {
+            Line: i + 1,
+            Code: l.code ?? `L${i + 1}`,
+            Name: l.name,
+            MUnitId: 1,
+            Qty: l.qty,
+            ItemPrc: l.unitPriceInclVat,
+            DiscType: 0,
+            TotPrice: tot,
+            TotPrcAfterDisc: tot,
+            DiscountValue: 0.0,
+            NetValue: l.netValue,
+            VatAmount: l.vatAmount,
+            VatCatId: l.vatCatId,
+            VatExcCatId: l.vatExcCatId ?? null,
+            IncomeCatId: l.incomeCatId ?? req.incomeCatId ?? null,
+            IncomeValId: l.incomeValId ?? req.incomeValId ?? null,
+          };
+        }),
+        // Τα πεδία αποδοχής POS (PaymentStatus 2 + Acquirer + TidNsp) μπαίνουν ΜΟΝΟ όταν δοθεί
+        // θετικό paymentStatus (μετρητά: 2 — δουλεύει). Για κάρτα χωρίς πραγματική αποδοχή POS
+        // (paymentStatus 0/κενό) στέλνουμε μόνο τα ποσά (αλλιώς 1192 σε PaymentId 7).
+        PaymentMethods: req.payments.map((p) => {
+          const pm: Record<string, unknown> = {
+            PayGuid: p.payGuid,
+            PaymentId: p.paymentId,
+            Net: p.net ?? null,
+            Vat: p.vat ?? null,
+            Amount: p.amount,
+            TipAmount: 0.0,
+            DateAdded: new Date().toISOString(),
+          };
+          if (p.paymentStatus && p.paymentStatus > 0) {
+            pm.PaymentStatus = p.paymentStatus;
+            if (p.acquirerId) pm.AcquirerId = p.acquirerId;
+            if (p.tidNsp) pm.TidNsp = p.tidNsp;
+          }
+          return pm;
+        }),
       };
-      const env = await this.authed('/api/v1.0/provider/PostInvoice', { method: 'POST', body });
-      const aade = env.jsonData?.fromDB?.aadeBookInvoiceType ?? env.jsonData?.aadeBookInvoiceType ?? {};
-      const mark = aade.mark ?? env.jsonData?.fromDB?.mark;
-      const uid = aade.uid ?? env.jsonData?.fromDB?.id;
-      const authenticationCode = aade.authenticationCode;
-      if (!mark && !uid) return { ok: false, raw: env, error: 'Δεν επιστράφηκε MARK/UID. ' + (env.message ?? '') };
-      return { ok: true, mark: String(mark ?? ''), uid: uid ? String(uid) : undefined, authenticationCode, raw: env };
+      const env = await this.authed('/api/v1.1/provider/PostInvoice1155?debug=true', { method: 'POST', body });
+      // Βαθιά αναζήτηση (η θέση των πεδίων διαφέρει ανά endpoint/έκδοση/debug).
+      const mark = deepFind(env, ['mark']) ?? deepFind(env, ['markNumber', 'aadeMark']);
+      const uid = deepFind(env, ['invoiceUid', 'uid']);
+      const guid = deepFind(env, ['guid']);
+      const authenticationCode = deepFind(env, ['authCode', 'authenticationCode']);
+      const qrCode = deepFind(env, ['qrCode']);
+      const qrCodeMyData = deepFind(env, ['qrCodeMyData']);
+      if (!mark && !uid) {
+        return { ok: false, raw: { request: body, response: env }, error: 'Δεν επιστράφηκε MARK/UID. Απάντηση: ' + JSON.stringify(env).slice(0, 600) };
+      }
+      return {
+        ok: true, guid, mark: String(mark ?? ''), uid: uid ? String(uid) : undefined,
+        authenticationCode, authCodeMat: deepFind(env, ['authCodeMat']), qrCode, qrCodeMyData, raw: env,
+      };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
   }
+
+  /**
+   * Ακύρωση (void) εκδοθέντος παραστατικού — π.χ. ακυρωτικό ΑΠΥ.
+   * POST /api/v1.0/provider/invoicevoid?debug=true  body { vatNumber, guid, VoidReason }
+   * Το `guid` είναι αυτό που επέστρεψε η έκδοση (dataLite.guid).
+   */
+  async voidInvoice(vatNumber: string, guid: string, reason: string): Promise<VoidResult> {
+    try {
+      if (!guid) return { ok: false, error: 'Λείπει το guid του παραστατικού προς ακύρωση' };
+      const env = await this.authed('/api/v1.0/provider/invoicevoid?debug=true', {
+        method: 'POST', body: { vatNumber, guid, VoidReason: reason || 'Ακύρωση' },
+      });
+      const code = env.extCode ?? env.jsonData?.invoiceStatus;
+      const ok = env.statusDescription === 'SUCCESS' || env.message === 'SUCCESS' || code === 100;
+      if (!ok) return { ok: false, raw: env, error: env.message ?? JSON.stringify(env).slice(0, 200) };
+      return { ok: true, raw: env };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
+  /** Συγκεντρωτική ανάκτηση όλων των λιστών (lookups) για τη ρύθμιση παραστατικών. */
+  async allLookups(): Promise<any> {
+    await this.authenticate();
+    const pick = (e: Envelope) => e.jsonData?.idNames ?? e.jsonData ?? [];
+    const [it, vat, vatEx, inc, incV, pay, acq] = await Promise.all([
+      this.invoiceTypes(), this.vatCategories(), this.call('/api/v1.0/provider/VatExemptions', { headers: { Authorization: `Bearer ${this.bearer}` } }),
+      this.incomeCategories(), this.incomeValues(), this.paymentMethods(),
+      this.call('/api/v1.0/provider/Acquirers', { headers: { Authorization: `Bearer ${this.bearer}` } }),
+    ]);
+    return {
+      invoiceTypes: pick(it), vatCategories: pick(vat), vatExemptions: pick(vatEx),
+      incomeCategories: pick(inc), incomeValues: pick(incV), paymentMethods: pick(pay), acquirers: pick(acq),
+    };
+  }
+}
+
+/** Επιστρέφει την πρώτη μη-κενή τιμή για οποιοδήποτε από τα keys, ψάχνοντας σε όλο το αντικείμενο. */
+function deepFind(obj: any, keys: string[]): any {
+  const seen = new Set<any>();
+  const stack = [obj];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+    seen.add(cur);
+    for (const k of keys) {
+      const v = (cur as any)[k];
+      if (v !== undefined && v !== null && v !== '') return v;
+    }
+    for (const val of Object.values(cur)) {
+      if (val && typeof val === 'object') stack.push(val);
+      else if (typeof val === 'string') {
+        const s = val.trim();
+        if ((s.startsWith('{') && s.endsWith('}')) || (s.startsWith('[') && s.endsWith(']'))) {
+          try { stack.push(JSON.parse(s)); } catch { /* not json */ }
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 function cryptoRandomUUID(): string {

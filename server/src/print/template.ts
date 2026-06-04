@@ -23,6 +23,8 @@ export interface TicketContext {
   show?: string;     // Φάση 2
   qrPayload?: string; // περιεχόμενο QR (default: serial)
   legalNote?: string; // π.χ. «Δεν αποτελεί φορολογικό παραστατικό» όταν την απόδειξη κόβει η ταμειακή
+  mark?: string;      // ΜΑΡΚ παρόχου (myDATA) — όταν το εισιτήριο είναι το φορολογικό παραστατικό
+  markQr?: string;    // QR myDATA (AADE URL) — για [qrmark]
 }
 
 /** Υπολογισμός καθαρής αξίας & ΦΠΑ από τιμή ΜΕ ΦΠΑ (VAT-inclusive). */
@@ -54,6 +56,7 @@ export function fillTemplate(tpl: string, ctx: TicketContext): string {
     seat: ctx.seat ?? '',
     show: ctx.show ?? '',
     legalNote: ctx.legalNote ?? '',
+    mark: ctx.mark ?? '',
   };
   return (tpl ?? '').replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => map[k] ?? '');
 }

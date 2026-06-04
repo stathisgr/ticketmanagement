@@ -105,12 +105,13 @@ export default function SeatPOS() {
   async function doIssue(items: { seat_id?: number; show_ticket_type_id: number; qty?: number }[]) {
     setBusy(true); setError(''); setMsg('');
     try {
-      const res = await api.post<{ saleId: number; total: number; tickets: { preview: string }[]; printTicket?: boolean }>('/api/sales', {
+      const res = await api.post<{ saleId: number; total: number; tickets: { preview: string }[]; printTicket?: boolean; fiscal?: { ok: boolean; mark?: string; error?: string } | null }>('/api/sales', {
         items, payment_method: payment, show_date: date, customer_id: customer?.id ?? null, station: getStation(),
       });
       if (res.printTicket !== false) printTickets((res.tickets ?? []).map((t) => t.preview));
       const n = (res.tickets ?? []).length;
-      setMsg(`✓ Πώληση #${res.saleId} — ${res.total.toFixed(2)} € (${n} ${general ? 'εισιτήρια' : 'θέσεις'})`);
+      const fx = res.fiscal ? (res.fiscal.ok ? ` · ΜΑΡΚ ${res.fiscal.mark}` : ` · ⚠ Πάροχος: ${res.fiscal.error ?? 'αποτυχία'}`) : '';
+      setMsg(`✓ Πώληση #${res.saleId} — ${res.total.toFixed(2)} € (${n} ${general ? 'εισιτήρια' : 'θέσεις'})${fx}`);
       if (show) await openShow(show); // ανανέωση διαθεσιμότητας
     } catch (e) {
       setError((e as Error).message);

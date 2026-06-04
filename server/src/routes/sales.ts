@@ -6,6 +6,7 @@ import { renderTicket, type PrinterType } from '../print/index.js';
 import type { TicketContext } from '../print/template.js';
 import { exportAsciiReceipt } from '../fiscal/ascii.js';
 import { sendToNetworkPrinter, DRAWER_KICK } from '../print/dispatch.js';
+import { issueForSale, creditForSale } from '../fiscal/issue.js';
 
 interface SaleItemInput {
   // Σειριακή έκδοση (Φάση 1):
@@ -103,25 +104,10 @@ export default async function salesRoutes(app: FastifyInstance) {
 
     const serialGen = makeSerialGenerator(venue);
 
-    let result;
-    try {
-      result = tx(() => {
-      const saleInfo = db
-        .prepare(
-          `INSERT INTO sales (datetime, user_id, customer_id, payment_method, total, vat_total, source)
-           VALUES (datetime('now','localtime'), ?, ?, ?, 0, 0, 'local')`
-        )
-        .run(user.id, body.customer_id ?? null, body.payment_method);
-      const saleId = Number(saleInfo.lastInsertRowid);
-
-      let total = 0;
-      let vatTotal = 0;
-      const previews: any[] = [];
-
-      // Όταν την απόδειξη την κόβει η ταμειακή (ΦΗΜ), το εισιτήριο ΔΕΝ είναι φορολογικό στοιχείο.
-      const legalNote = fiscal?.mode === 'cash_register_file' ? 'Δεν αποτελεί φορολογικό παραστατικό' : '';
-
-      const mkCtx = (over: Partial<TicketContext>): TicketContext => ({
+    // Συλλέγουμε τα contexts μέσα στη συναλλαγή και ΤΥΠΩΝΟΥΜΕ ΜΕΤΑ (ώστε, σε λειτουργία
+    // παρόχου, να προλάβει να εκδοθεί το ΑΠΥ και να μπει το ΜΑΡΚ πάνω στο εισιτήριο).
+    const renderCtx: TicketContext[] = [];
+    const mkCtx = (over: Partial<TicketContext>): TicketContext => ({
         venueName: venue?.name ?? '',
         vatNumber: venue?.vat_number,
         address: venue?.address,
@@ -139,6 +125,19 @@ export default async function salesRoutes(app: FastifyInstance) {
         legalNote,
         ...over,
       });
+
+    let result;
+    try {
+      result = tx(() => {
+      const saleInfo = db
+        .prepare(
+          `INSERT INTO sales (datetime, user_id, customer_id, payment_method, total, vat_total, source)
+           VALUES (datetime('now','localtime'), ?, ?, ?, 0, 0, 'local')`
+        )
+        .run(user.id, body.customer_id ?? null, body.payment_method);
+      const saleId = Number(saleInfo.lastInsertRowid);
+      let total = 0;
+      let vatTotal = 0;
 
       for (const item of body.items) {
         // --- Event χωρίς θέσεις (general): qty εισιτήρια, show-linked, χωρίς θέση ---
@@ -168,7 +167,7 @@ export default async function salesRoutes(app: FastifyInstance) {
               `INSERT INTO tickets (sale_item_id, serial, qr_payload, show_id, show_date, printed_at)
                VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))`
             ).run(saleItemId, serial, qrPayload, stt.show_id, showDate);
-            previews.push(renderTicket(mkCtx({ title: stt.title, subtitle: show?.title, show: show?.title, unitPrice: stt.price, lineTotal: stt.price, vatRate: stt.vat_rate, serial, qrPayload }), printerType, tpl));
+            renderCtx.push(mkCtx({ title: stt.title, subtitle: show?.title, show: show?.title, unitPrice: stt.price, lineTotal: stt.price, vatRate: stt.vat_rate, serial, qrPayload }));
           }
           continue;
         }
@@ -208,23 +207,17 @@ export default async function salesRoutes(app: FastifyInstance) {
              VALUES (?, ?, ?, ?, ?, ?, datetime('now','localtime'))`
           ).run(saleItemId, serial, qrPayload, stt.show_id, showDate, seat.id);
 
-          previews.push(
-            renderTicket(
-              mkCtx({
-                title: stt.title,
-                subtitle: show?.title,
-                show: show?.title,
-                seat: seat.display_name,
-                unitPrice: stt.price,
-                lineTotal: stt.price,
-                vatRate: stt.vat_rate,
-                serial,
-                qrPayload,
-              }),
-              printerType,
-              tpl
-            )
-          );
+          renderCtx.push(mkCtx({
+            title: stt.title,
+            subtitle: show?.title,
+            show: show?.title,
+            seat: seat.display_name,
+            unitPrice: stt.price,
+            lineTotal: stt.price,
+            vatRate: stt.vat_rate,
+            serial,
+            qrPayload,
+          }));
           continue;
         }
 
@@ -272,7 +265,7 @@ export default async function salesRoutes(app: FastifyInstance) {
             legalNote,
             qrPayload,
           };
-          previews.push(renderTicket(ctx, printerType, tpl));
+          renderCtx.push(ctx);
         }
       }
 
@@ -308,7 +301,7 @@ export default async function salesRoutes(app: FastifyInstance) {
       }
 
       serialGen.persist();
-      return { saleId, total, vatTotal, tickets: previews, receiptFile };
+      return { saleId, total, vatTotal, receiptFile };
       });
     } catch (err: any) {
       const msg = String(err?.message ?? err);
@@ -317,6 +310,25 @@ export default async function salesRoutes(app: FastifyInstance) {
       }
       return reply.code(400).send({ error: msg });
     }
+
+    // Λειτουργία παρόχου: έκδοση ΑΠΥ ΤΩΡΑ (μετά τη συναλλαγή) ώστε να μπει το ΜΑΡΚ στο εισιτήριο.
+    let fiscalResult: { ok: boolean; mark?: string; qrUrl?: string; error?: string } | null = null;
+    if (issueMode === 'provider') {
+      try { fiscalResult = await issueForSale(result.saleId); }
+      catch (e) { fiscalResult = { ok: false, error: (e as Error).message }; }
+    }
+    // Τύπωμα εισιτηρίων (με ΜΑΡΚ αν εκδόθηκε· σε λειτουργία παρόχου φεύγει η ένδειξη «μη φορολογικό»).
+    // Αν εκδόθηκε ΜΑΡΚ και η φόρμα δεν το περιλαμβάνει, προστίθεται αυτόματα ΜΑΡΚ + QR myDATA στο υποσέλιδο.
+    let tplForRender = tpl;
+    if (fiscalResult?.mark) {
+      const footer = String(tpl.footer ?? '');
+      if (!/\{\{\s*mark\s*\}\}/i.test(footer)) {
+        tplForRender = { ...tpl, footer: footer + '\n[c]ΜΑΡΚ: {{mark}}' + (fiscalResult.qrUrl ? '\n[c][qrmark]' : '') };
+      }
+    }
+    const tickets = renderCtx.map((c) =>
+      renderTicket({ ...c, mark: fiscalResult?.mark, markQr: fiscalResult?.qrUrl, legalNote: issueMode === 'provider' ? '' : c.legalNote }, printerType, tplForRender));
+    (result as any).tickets = tickets;
 
     // Άμεση αποστολή στον εκτυπωτή του σταθμού (δικτυακός) → χωρίς browser print.
     let dispatched = false;
@@ -340,7 +352,7 @@ export default async function salesRoutes(app: FastifyInstance) {
     }
     // Ο client τυπώνει από browser ΜΟΝΟ αν δεν στάλθηκε ήδη από τον server.
     const printTicket = issueMode !== 'disabled' && !dispatched;
-    return { ...result, dispatched, dispatchInfo, printTicket, printerName: targetPrinter?.name ?? null };
+    return { ...result, tickets, dispatched, dispatchInfo, printTicket, printerName: targetPrinter?.name ?? null, fiscal: fiscalResult };
   });
 
   // Λίστα πωλήσεων ημέρας (για επανεκτύπωση)
@@ -531,7 +543,11 @@ export default async function salesRoutes(app: FastifyInstance) {
       ).run(user.id, t.sale_id, -unit, t.payment_method,
         isPast ? `ΔΙΟΡΘΩΣΗ ακύρωσης ${t.serial} (εκδ. ${eventDate}) — Εγκρ.: ${approver}` : `Ακύρωση εισιτηρίου ${t.serial}`);
     });
-    return { ok: true, serial: t.serial, refund: unit, isPast, eventDate };
+    // Λειτουργία παρόχου: έκδοση Πιστωτικού (αντιλογιστικό) για την αξία του εισιτηρίου.
+    let credit: { ok: boolean; mark?: string; error?: string } | null = null;
+    try { credit = await creditForSale(t.sale_id, reason, { net: +(unit - vat).toFixed(2), vat, total: unit }); }
+    catch (e) { credit = { ok: false, error: (e as Error).message }; }
+    return { ok: true, serial: t.serial, refund: unit, isPast, eventDate, credit };
   });
 }
 

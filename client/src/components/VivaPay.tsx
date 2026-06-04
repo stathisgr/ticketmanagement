@@ -40,11 +40,17 @@ export default function VivaPay({ amount, hasTerminal, onPaid, onCancel }:
         <h3 className="font-bold text-lg mb-1">Πληρωμή με κάρτα (Viva)</h3>
         <div className="text-2xl font-bold mb-2">{amount.toFixed(2)} €</div>
         {err ? <div className="bg-red-100 text-red-700 p-2 rounded text-sm">{err}</div> : <div className="text-sm text-gray-600 mb-3">{status}</div>}
-        {url && (
+        {/* Με φυσικό τερματικό/SoftPOS η πληρωμή γίνεται στη συσκευή — ΔΕΝ ανοίγουμε web σελίδα (που θα έκανε redirect). */}
+        {hasTerminal && !err && (
+          <div className="mb-3 text-sm text-gray-700 bg-slate-50 border rounded p-3">
+            💳 Η πληρωμή ολοκληρώνεται στο τερματικό/SoftPOS. Μόλις πληρωθεί, εκδίδεται αυτόματα το εισιτήριο.
+          </div>
+        )}
+        {url && !hasTerminal && (
           <div className="mb-3">
             <img alt="QR" className="mx-auto border rounded" width={180} height={180}
               src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(url)}`} />
-            <a href={url} target="_blank" rel="noreferrer" className="text-blue-600 text-sm break-all">Άνοιγμα σελίδας πληρωμής</a>
+            <div className="text-xs text-gray-500 mt-1">Ο πελάτης σαρώνει το QR με το κινητό του για να πληρώσει (μην ανοίγετε τον σύνδεσμο στον υπολογιστή του ταμείου).</div>
           </div>
         )}
         <div className="flex gap-2 justify-center">

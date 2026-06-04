@@ -84,6 +84,10 @@ export function renderEscpos(ctx: TicketContext, tpl: EscposTemplate = {}): Buff
   const renderSection = (raw: string, defaultSize: number, defaultBold: boolean) => {
     for (const line of fillTemplate(raw, ctx).split('\n')) {
       const p = parseLine(line);
+      if (p.qrMark) {
+        if (ctx.markQr) { b.align('center').qr(ctx.markQr); }
+        continue;
+      }
       if (p.qr) {
         if (tpl.withQr !== false && ctx.serial) { b.align('center').qr(ctx.qrPayload ?? ctx.serial); }
         continue;
