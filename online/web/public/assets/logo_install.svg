@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 140" width="480" height="140">
+  <defs>
+    <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A4DA6"/>
+      <stop offset="100%" stop-color="#0070E0"/>
+    </linearGradient>
+    <linearGradient id="darkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A0F1F"/>
+      <stop offset="100%" stop-color="#1A2236"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Network mark -->
+  <g transform="translate(20,20)">
+    <!-- Outer rounded square -->
+    <rect x="0" y="0" width="100" height="100" rx="22" fill="url(#darkGrad)"/>
+    <!-- Inner subtle border -->
+    <rect x="3" y="3" width="94" height="94" rx="20" fill="none" stroke="#0070E0" stroke-opacity="0.25" stroke-width="1"/>
+
+    <!-- Network nodes with connecting lines -->
+    <g stroke="#0070E0" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.85">
+      <line x1="22" y1="28" x2="50" y2="50"/>
+      <line x1="78" y1="28" x2="50" y2="50"/>
+      <line x1="22" y1="72" x2="50" y2="50"/>
+      <line x1="78" y1="72" x2="50" y2="50"/>
+      <line x1="22" y1="28" x2="78" y2="28"/>
+      <line x1="22" y1="72" x2="78" y2="72"/>
+    </g>
+
+    <!-- Nodes -->
+    <circle cx="22" cy="28" r="4.5" fill="#FFFFFF"/>
+    <circle cx="78" cy="28" r="4.5" fill="#FFFFFF"/>
+    <circle cx="22" cy="72" r="4.5" fill="#FFFFFF"/>
+    <circle cx="78" cy="72" r="4.5" fill="#FFFFFF"/>
+    <circle cx="50" cy="50" r="7" fill="url(#blueGrad)"/>
+    <circle cx="50" cy="50" r="3" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Wordmark -->
+  <g transform="translate(140,0)">
+    <text x="0" y="78" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+          font-size="58" font-weight="800" letter-spacing="-1" fill="url(#darkGrad)">
+      NT<tspan fill="url(#blueGrad)">TH</tspan>
+    </text>
+    <text x="2" y="108" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+          font-size="13" font-weight="600" letter-spacing="3" fill="#0A4DA6">
+      NETWORK TO THE HOME
+    </text>
+    <text x="2" y="126" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+          font-size="10" font-weight="500" letter-spacing="2" fill="#5B6577">
+      NEW TECHNOLOGIES THRAKIS
+    </text>
+  </g>
+</svg>

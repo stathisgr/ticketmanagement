@@ -1,6 +1,8 @@
 // Συγχρονισμός τοπικής βάσης ↔ Supabase (cloud) για online κρατήσεις.
 // Χρησιμοποιεί το service_role key (μόνο server-side) μέσω PostgREST upsert.
 import { db } from '../db.js';
+import { issueForSale } from '../fiscal/issue.js';
+import { sendEmail, emailCfg, receiptEmailHtml } from './email.js';
 
 interface OnlineCfg { supabase_url: string; service_key: string; enabled: number; sync_minutes_before: number; }
 
@@ -101,6 +103,8 @@ export async function pushPublication(showId: number, showDate: string, salesClo
     seating_mode: isGeneral ? 'general' : 'seated',
     online_capacity: isGeneral ? (show.capacity ?? 0) : 0,
     sales_close_at: salesCloseAt,
+    image_url: show.poster_url ?? null,
+    description: show.description ?? null,
     enabled: true,
   }]);
   const cloudShowId = cloudShow.id as number;
@@ -195,6 +199,7 @@ async function importShowOrders(c: OnlineCfg, pub: any, webId: number | null): P
   const byOrder = new Map<number, any[]>();
   for (const r of tks) { if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []); byOrder.get(r.order_id)!.push(r); }
   let imported = 0;
+  const created: { saleId: number; email?: string; name?: string }[] = [];
   for (const [, items] of byOrder) {
     if (db.prepare('SELECT 1 FROM tickets WHERE serial = ?').get(items[0].serial)) continue; // idempotent
     const ord = items[0].orders ?? {};
@@ -228,7 +233,40 @@ async function importShowOrders(c: OnlineCfg, pub: any, webId: number | null): P
       } catch { /* θέση ήδη πουλημένη τοπικά ή διπλό serial — αγνόησε */ }
     }
     db.prepare('UPDATE sales SET vat_total = ? WHERE id = ?').run(+vatTotal.toFixed(2), saleId);
+    created.push({ saleId, email: ord.customer_email ?? undefined, name: ord.customer_name ?? undefined });
     imported++;
+  }
+
+  // ── Έκδοση ΑΠΥ στον πάροχο για τις ΝΕΕΣ online πωλήσεις + 2ο email με σύνδεσμο PDF ──
+  // (κάρτα → 2-step → ΜΑΡΚ). Αν δεν είναι ενεργή λειτουργία παρόχου → issueForSale=null (παράλειψη).
+  if (created.length) {
+    const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
+    const show = db.prepare('SELECT title FROM shows WHERE id = ?').get(pub.show_id) as any;
+    const canEmail = !!emailCfg();
+    for (const s of created) {
+      try {
+        const fr = await issueForSale(s.saleId);
+        if (!fr || !fr.ok) continue;
+        if (fr.isNew && canEmail && s.email) {
+          const sale = db.prepare('SELECT total FROM sales WHERE id = ?').get(s.saleId) as any;
+          const seatRows = db.prepare(
+            `SELECT COALESCE(se.display_name, se.row_label || se.col_label) AS lbl
+               FROM sale_items si LEFT JOIN seats se ON se.id = si.seat_id
+              WHERE si.sale_id = ? AND si.seat_id IS NOT NULL`
+          ).all(s.saleId) as any[];
+          const seats = seatRows.map((r) => r.lbl).filter(Boolean).join(', ');
+          await sendEmail(
+            s.email,
+            `Απόδειξη Παροχής Υπηρεσιών — ${show?.title ?? 'Κράτηση'}`,
+            receiptEmailHtml({
+              name: s.name, showTitle: show?.title, showDate: pub.show_date, seats,
+              total: Number(sale?.total) || 0, mark: fr.mark, link: fr.providerUrl ?? fr.qrUrl,
+              venueName: venue?.name,
+            }),
+          );
+        }
+      } catch { /* η αποτυχία έκδοσης/email δεν μπλοκάρει τον συγχρονισμό */ }
+    }
   }
   return imported;
 }

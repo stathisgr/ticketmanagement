@@ -90,15 +90,16 @@ export default async function showRoutes(app: FastifyInstance) {
     const created: number[] = [];
     tx(() => {
       const ins = db.prepare(
-        `INSERT INTO shows (hall_id, title, starts_at, start_time, end_time, valid_from, valid_to, enabled, seating_mode, capacity)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+        `INSERT INTO shows (hall_id, title, starts_at, start_time, end_time, valid_from, valid_to, enabled, seating_mode, capacity, poster_url, description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`
       );
       for (const r of ranges) {
         for (const s of slots) {
           const info = ins.run(
             general ? null : b.hall_id, b.title, composeStartsAt(r.valid_from, s.start_time),
             s.start_time, s.end_time ?? null, r.valid_from, r.valid_to,
-            general ? 'general' : 'seated', capacity
+            general ? 'general' : 'seated', capacity,
+            b.poster_url || null, b.description || null
           );
           const showId = Number(info.lastInsertRowid);
           assignTicketTypes(showId, b.ticketTypeIds);
@@ -126,11 +127,12 @@ export default async function showRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Δεν βρέθηκε' });
     tx(() => {
       db.prepare(
-        `UPDATE shows SET hall_id=?, title=?, starts_at=?, start_time=?, end_time=?, valid_from=?, valid_to=? WHERE id=?`
+        `UPDATE shows SET hall_id=?, title=?, starts_at=?, start_time=?, end_time=?, valid_from=?, valid_to=?, poster_url=?, description=? WHERE id=?`
       ).run(
         b.hall_id, b.title,
         composeStartsAt(b.valid_from, b.start_time),
-        b.start_time ?? null, b.end_time ?? null, b.valid_from ?? null, b.valid_to ?? null, id
+        b.start_time ?? null, b.end_time ?? null, b.valid_from ?? null, b.valid_to ?? null,
+        b.poster_url ?? null, b.description ?? null, id
       );
       if (Array.isArray(b.ticketTypeIds)) {
         db.prepare('DELETE FROM show_ticket_types WHERE show_id = ?').run(id);

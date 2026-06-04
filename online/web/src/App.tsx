@@ -172,18 +172,17 @@ export default function App() {
               {selectedDate && dayShows.length > 0 && <h3 style={{ marginTop: 0 }}>{dateGr(selectedDate)}</h3>}
               {dayShows.map((s) => (
                 <div key={s.id} className="card" onClick={() => !isClosed(s) && openShow(s)}>
-                  {s.image_url && <img className="showimg" src={s.image_url} alt={s.title} />}
                   <div className="row">
                     <div>
                       <h3>{s.title}</h3>
                       <div className="muted">{s.subtitle}</div>
-                      {s.description && <div className="muted" style={{ marginTop: 4 }}>{s.description}</div>}
                       <div className="muted">{s.venue_name} · {s.start_time}{s.end_time ? `–${s.end_time}` : ""}</div>
                     </div>
                     {isClosed(s)
                       ? <span className="closed">Έκλεισαν οι online πωλήσεις</span>
                       : <span className="btn alt">Κράτηση →</span>}
                   </div>
+                  {s.image_url && <img className="showthumb" src={s.image_url} alt={s.title} />}
                 </div>
               ))}
             </div>
@@ -195,6 +194,8 @@ export default function App() {
             <button className="link" onClick={reset}>← Πίσω στα θεάματα</button>
             <h2>{show.title}</h2>
             <div className="muted">{dateGr(show.show_date)} · {show.start_time} · {show.venue_name}</div>
+            {show.image_url && <img className="showposter" src={show.image_url} alt={show.title} />}
+            {show.description && <p className="showdesc">{show.description}</p>}
             <div style={{ margin: "4px 0 8px" }}>
               <button className="link" onClick={() => setShowTerms(true)}>Όροι &amp; Προϋποθέσεις</button>
             </div>

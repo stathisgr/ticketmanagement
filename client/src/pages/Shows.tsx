@@ -8,12 +8,14 @@ interface Draft {
   id?: number; hall_id: number | ''; title: string;
   slots: Slot[]; ranges: Range[]; ticketTypeIds: number[];
   seating_mode: 'seated' | 'general'; capacity: number | '';
+  poster_url: string; description: string;
 }
 
 const emptyDraft = (): Draft => ({
   hall_id: '', title: '', slots: [{ start_time: '18:00', end_time: '20:00' }],
   ranges: [{ valid_from: '', valid_to: '' }], ticketTypeIds: [],
   seating_mode: 'seated', capacity: '',
+  poster_url: '', description: '',
 });
 
 /** 24ωρη επιλογή ώρας (χωρίς AM/PM) με dropdowns. */
@@ -83,6 +85,7 @@ export default function Shows() {
       ranges: [{ valid_from: (s.valid_from ?? '').slice(0, 10), valid_to: (s.valid_to ?? '').slice(0, 10) }],
       ticketTypeIds: res.ticketTypes.map((t) => t.ticket_type_id).filter((x): x is number => x != null),
       seating_mode: sm, capacity: (s as any).capacity || '',
+      poster_url: (s as any).poster_url ?? '', description: (s as any).description ?? '',
     });
   }
 
@@ -104,6 +107,7 @@ export default function Shows() {
           start_time: s0.start_time, end_time: s0.end_time,
           valid_from: r0.valid_from, valid_to: r0.valid_to,
           ticketTypeIds: draft.ticketTypeIds,
+          poster_url: draft.poster_url, description: draft.description,
         });
         // Τυχόν επιπλέον συνδυασμοί (ώρα × ημερομηνίες) δημιουργούνται ως νέα θεάματα
         for (let i = 0; i < draft.slots.length; i++) {
@@ -112,6 +116,7 @@ export default function Shows() {
             await api.post('/api/shows', {
               hall_id, title: draft.title, seating_mode: draft.seating_mode, capacity,
               timeSlots: [draft.slots[i]], dateRanges: [draft.ranges[j]], ticketTypeIds: draft.ticketTypeIds,
+              poster_url: draft.poster_url, description: draft.description,
             });
           }
         }
@@ -119,6 +124,7 @@ export default function Shows() {
         await api.post('/api/shows', {
           hall_id, title: draft.title, seating_mode: draft.seating_mode, capacity,
           timeSlots: draft.slots, dateRanges: draft.ranges, ticketTypeIds: draft.ticketTypeIds,
+          poster_url: draft.poster_url, description: draft.description,
         });
       }
       setDraft(null); load();
@@ -201,6 +207,19 @@ export default function Shows() {
             <div className="grid grid-cols-2 gap-3">
               <label className="text-sm col-span-2">Τίτλος
                 <input className="inp" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} /></label>
+
+              {/* Online παρουσίαση: εικόνα (poster) + περιγραφή — εμφανίζονται στην online σελίδα */}
+              <label className="text-sm col-span-2">Εικόνα θεάματος (URL) <span className="text-gray-500 font-normal">(εμφανίζεται online· προτεινόμενο ~800×420)</span>
+                <input className="inp" placeholder="https://… ή /assets/theama1.webp" value={draft.poster_url}
+                  onChange={(e) => setDraft({ ...draft, poster_url: e.target.value })} /></label>
+              {draft.poster_url && (
+                <div className="col-span-2">
+                  <img src={draft.poster_url} alt="" className="rounded-lg border max-h-32 object-cover" onError={(ev) => { (ev.target as HTMLImageElement).style.display = 'none'; }} />
+                </div>
+              )}
+              <label className="text-sm col-span-2">Περιγραφή <span className="text-gray-500 font-normal">(εμφανίζεται κάτω από τα στοιχεία online)</span>
+                <textarea className="inp" rows={3} value={draft.description}
+                  onChange={(e) => setDraft({ ...draft, description: e.target.value })} /></label>
 
               {/* Τύπος θεάματος: με θέσεις (αίθουσα) ή ελεύθερη είσοδος (event) */}
               <div className="col-span-2 flex gap-2">

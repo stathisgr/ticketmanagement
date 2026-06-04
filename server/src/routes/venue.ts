@@ -4,6 +4,7 @@ import { db } from '../db.js';
 import { authenticate, requireManager } from '../auth.js';
 import { RapidSignProvider, vatCatIdFromRate, type FiscalEnv } from '../fiscal/rapidsign.js';
 import { VivaProvider, type VivaEnv } from '../fiscal/viva.js';
+import { sendEmail, receiptEmailHtml } from '../online/email.js';
 
 export default async function venueRoutes(app: FastifyInstance) {
   app.get('/api/venue', { preHandler: authenticate }, async () => {
@@ -205,6 +206,19 @@ export default async function venueRoutes(app: FastifyInstance) {
       username: cfg.username, password: cfg.password, activationCode: cfg.activationCode,
     });
     return provider.voidInvoice(cfg.issuerVat || venue?.vat_number || '619333103', guid, reason || 'Δοκιμή ακύρωσης');
+  });
+
+  // Δοκιμαστική αποστολή email απόδειξης (Resend) — επιβεβαιώνει τη ρύθμιση email.
+  app.post('/api/fiscal/provider/test-email', { preHandler: requireManager }, async (req, reply) => {
+    const { to } = (req.body ?? {}) as { to?: string };
+    if (!to) return reply.code(400).send({ error: 'Δώσε διεύθυνση παραλήπτη.' });
+    const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
+    const html = receiptEmailHtml({
+      name: 'Δοκιμή', showTitle: 'Δοκιμαστικό θέαμα', showDate: new Date().toISOString().slice(0, 10),
+      seats: 'Α1, Α2', total: 14, mark: '400000000000000', link: 'https://example.com/receipt.pdf',
+      venueName: venue?.name,
+    });
+    return sendEmail(to, 'Δοκιμαστικό email απόδειξης', html);
   });
 
   // Δοκιμαστική έκδοση ΠΙΣΤΩΤΙΚΟΥ (αντιλογιστικό) που αναφέρεται στο ΜΑΡΚ ενός ΑΠΥ.

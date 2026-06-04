@@ -7,6 +7,7 @@ import type { TicketContext } from '../print/template.js';
 import { exportAsciiReceipt } from '../fiscal/ascii.js';
 import { sendToNetworkPrinter, DRAWER_KICK } from '../print/dispatch.js';
 import { issueForSale, creditForSale } from '../fiscal/issue.js';
+import { sendEmail, emailCfg, receiptEmailHtml } from '../online/email.js';
 
 interface SaleItemInput {
   // Σειριακή έκδοση (Φάση 1):
@@ -23,6 +24,7 @@ interface SaleInput {
   printer_type?: PrinterType;
   show_date?: string; // ημερομηνία παράστασης (κρατήσεις θέσεων)
   station?: string;   // όνομα σταθμού (browser) → εκτυπωτής
+  viva_transaction_id?: string; // αριθμός συναλλαγής Viva (κάρτα) → δήλωση POS στον πάροχο
 }
 
 /**
@@ -72,6 +74,7 @@ export default async function salesRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'Άκυρος τρόπος πληρωμής' });
 
     const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
+    const customer = body.customer_id ? (db.prepare('SELECT * FROM customers WHERE id = ?').get(body.customer_id) as any) : null;
     const fiscal = db.prepare('SELECT * FROM fiscal_config WHERE id = 1').get() as any;
     const tplRow = db.prepare('SELECT * FROM print_templates WHERE id = 1').get() as any;
     let tpl: any = {};
@@ -123,6 +126,8 @@ export default async function salesRoutes(app: FastifyInstance) {
         datetime: new Date().toLocaleString('el-GR'),
         paymentMethod: labelPayment(body.payment_method),
         legalNote,
+        customerName: customer?.full_name ?? '',
+        customerVat: customer?.vat_number ?? '',
         ...over,
       });
 
@@ -312,10 +317,35 @@ export default async function salesRoutes(app: FastifyInstance) {
     }
 
     // Λειτουργία παρόχου: έκδοση ΑΠΥ ΤΩΡΑ (μετά τη συναλλαγή) ώστε να μπει το ΜΑΡΚ στο εισιτήριο.
-    let fiscalResult: { ok: boolean; mark?: string; qrUrl?: string; error?: string } | null = null;
+    let fiscalResult: { ok: boolean; mark?: string; qrUrl?: string; providerUrl?: string; isNew?: boolean; error?: string } | null = null;
     if (issueMode === 'provider') {
-      try { fiscalResult = await issueForSale(result.saleId); }
+      try { fiscalResult = await issueForSale(result.saleId, { vivaTxId: body.viva_transaction_id }); }
       catch (e) { fiscalResult = { ok: false, error: (e as Error).message }; }
+      // Αν ο πελάτης έχει δώσει email → στέλνουμε 2ο email με σύνδεσμο προς το επίσημο PDF του παρόχου.
+      // (Άγνωστος πελάτης = λιανικής → μόνο εκτύπωση.)
+      try {
+        const cust = body.customer_id ? (db.prepare('SELECT full_name, email FROM customers WHERE id = ?').get(body.customer_id) as any) : null;
+        if (fiscalResult?.ok && fiscalResult.isNew && cust?.email && emailCfg()) {
+          const head = db.prepare(
+            `SELECT s.title AS show_title, si.show_date FROM sale_items si LEFT JOIN shows s ON s.id = si.show_id WHERE si.sale_id = ? LIMIT 1`
+          ).get(result.saleId) as any;
+          const seatRows = db.prepare(
+            `SELECT COALESCE(se.display_name, se.row_label || se.col_label) AS lbl
+               FROM sale_items si LEFT JOIN seats se ON se.id = si.seat_id WHERE si.sale_id = ? AND si.seat_id IS NOT NULL`
+          ).all(result.saleId) as any[];
+          await sendEmail(
+            cust.email,
+            `Απόδειξη Παροχής Υπηρεσιών — ${head?.show_title ?? 'Αγορά'}`,
+            receiptEmailHtml({
+              name: cust.full_name, showTitle: head?.show_title, showDate: head?.show_date,
+              seats: seatRows.map((r) => r.lbl).filter(Boolean).join(', '),
+              total: Number(result.total) || 0, mark: fiscalResult.mark,
+              link: fiscalResult.providerUrl ?? fiscalResult.qrUrl, venueName: venue?.name,
+              payment: body.payment_method === 'card' ? 'Κάρτα' : 'Μετρητά',
+            }),
+          );
+        }
+      } catch { /* η αποτυχία email δεν επηρεάζει την πώληση */ }
     }
     // Τύπωμα εισιτηρίων (με ΜΑΡΚ αν εκδόθηκε· σε λειτουργία παρόχου φεύγει η ένδειξη «μη φορολογικό»).
     // Αν εκδόθηκε ΜΑΡΚ και η φόρμα δεν το περιλαμβάνει, προστίθεται αυτόματα ΜΑΡΚ + QR myDATA στο υποσέλιδο.
@@ -327,7 +357,12 @@ export default async function salesRoutes(app: FastifyInstance) {
       }
     }
     const tickets = renderCtx.map((c) =>
-      renderTicket({ ...c, mark: fiscalResult?.mark, markQr: fiscalResult?.qrUrl, legalNote: issueMode === 'provider' ? '' : c.legalNote }, printerType, tplForRender));
+      renderTicket({
+        ...c, mark: fiscalResult?.mark, markQr: fiscalResult?.qrUrl,
+        series: fiscalResult?.series, aa: fiscalResult?.aa, docType: fiscalResult?.docType,
+        total: result.total,
+        legalNote: issueMode === 'provider' ? '' : c.legalNote,
+      }, printerType, tplForRender));
     (result as any).tickets = tickets;
 
     // Άμεση αποστολή στον εκτυπωτή του σταθμού (δικτυακός) → χωρίς browser print.

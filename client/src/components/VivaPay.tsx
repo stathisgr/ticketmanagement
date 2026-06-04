@@ -7,7 +7,7 @@ import { api } from '../api';
  * onPaid() καλείται μόλις StateId = 3 (ή με χειροκίνητη επιβεβαίωση).
  */
 export default function VivaPay({ amount, hasTerminal, onPaid, onCancel }:
-  { amount: number; hasTerminal: boolean; onPaid: () => void; onCancel: () => void }) {
+  { amount: number; hasTerminal: boolean; onPaid: (transactionId?: string) => void; onCancel: () => void }) {
   const [status, setStatus] = useState('Δημιουργία πληρωμής…');
   const [url, setUrl] = useState('');
   const [orderCode, setOrderCode] = useState('');
@@ -24,8 +24,8 @@ export default function VivaPay({ amount, hasTerminal, onPaid, onCancel }:
         setStatus(hasTerminal ? 'Στάλθηκε στο τερματικό — αναμονή πληρωμής…' : 'Αναμονή πληρωμής (σάρωσε QR ή άνοιξε τον σύνδεσμο)…');
         timer.current = setInterval(async () => {
           try {
-            const s = await api.get<{ paid: boolean; stateId: number | null }>(`/api/pos/order-status?orderCode=${r.orderCode}`);
-            if (s.paid) { clearInterval(timer.current); setStatus('✓ Πληρώθηκε'); onPaid(); }
+            const s = await api.get<{ paid: boolean; stateId: number | null; transactionId?: string }>(`/api/pos/order-status?orderCode=${r.orderCode}`);
+            if (s.paid) { clearInterval(timer.current); setStatus('✓ Πληρώθηκε'); onPaid(s.transactionId); }
           } catch { /* keep polling */ }
         }, 3000);
       } catch (e) { setErr((e as Error).message); }
@@ -55,7 +55,7 @@ export default function VivaPay({ amount, hasTerminal, onPaid, onCancel }:
         )}
         <div className="flex gap-2 justify-center">
           <button onClick={onCancel} className="px-4 py-2 rounded border">Άκυρο</button>
-          <button onClick={onPaid} className="px-4 py-2 rounded bg-green-600 text-white">Πληρώθηκε → Έκδοση</button>
+          <button onClick={() => onPaid()} className="px-4 py-2 rounded bg-green-600 text-white">Πληρώθηκε → Έκδοση</button>
         </div>
         <p className="text-[11px] text-gray-400 mt-2">Όταν ολοκληρωθεί η πληρωμή, το εισιτήριο εκδίδεται αυτόματα. Demo περιβάλλον.</p>
       </div>

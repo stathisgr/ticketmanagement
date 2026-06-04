@@ -60,6 +60,13 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 .cal-day.off { background: transparent; color: #cbd5e1; cursor: default; }
 .dayshows { min-height: 200px; }
 .showimg { width: 100%; height: 140px; object-fit: cover; border-radius: 10px; margin-bottom: 10px; }
+/* Μικρό thumbnail κάτω-αριστερά στη στήλη επιλογής θεάματος (~50% πλάτος) */
+.showthumb { display: block; width: 50%; max-width: 220px; height: auto; max-height: 110px;
+  object-fit: cover; border-radius: 10px; margin: 10px auto 0 0; }
+/* Μεγάλη εικόνα + περιγραφή στην οθόνη επιλογής θέσεων/εισιτηρίων */
+.showposter { display: block; width: 100%; max-width: 520px; height: auto; max-height: 260px;
+  object-fit: cover; border-radius: 12px; margin: 10px 0; }
+.showdesc { color: #475569; line-height: 1.5; margin: 4px 0 8px; }
 
 /* Κάρτα εισιτηρίου (σελίδα ?t=) */
 .ticketcard { max-width: 420px; margin: 0 auto; background: #fff; border-radius: 18px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.12); }

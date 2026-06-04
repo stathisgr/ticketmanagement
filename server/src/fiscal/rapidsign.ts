@@ -226,7 +226,22 @@ export class RapidSignProvider {
           return pm;
         }),
       };
-      const env = await this.authed('/api/v1.1/provider/PostInvoice1155?debug=true', { method: 'POST', body });
+      let env = await this.authed('/api/v1.1/provider/PostInvoice1155?debug=true', { method: 'POST', body });
+      // ΔΥΟ ΒΗΜΑΤΑ για κάρτα/POS: αν γύρισε paySigs χωρίς ΜΑΡΚ → επιβεβαίωση πληρωμής (SendPaymentMethods).
+      const dl0 = env.jsonData?.dataLite;
+      if (!deepFind(env, ['mark']) && dl0?.paySigs?.length && dl0?.guid) {
+        const pm = dl0.paySigs.map((ps: any) => {
+          const orig = (req.payments.find((p) => p.payGuid === ps.payGuid) ?? req.payments[0]) as any;
+          return { PayGuid: ps.payGuid, PaymentId: orig.paymentId, Amount: orig.amount, PaymentStatus: 2, transactionId: orig.tidNsp ?? ps.payGuid };
+        });
+        try {
+          const env2 = await this.authed('/api/v1.1/provider/SendPaymentMethods?debug=true', {
+            method: 'POST', body: { VatNumber: req.issuer.vatNumber, DiscServer: false, InvoiceGuid: dl0.guid, PaymentMethods: pm },
+          });
+          if (deepFind(env2, ['mark'])) env = env2;            // πέτυχε → ΜΑΡΚ
+          else env = { ...env2, jsonData: { ...env2.jsonData, _step1: env.jsonData } }; // για διάγνωση
+        } catch (e) { /* κρατάμε το env του βήματος 1 για διάγνωση */ }
+      }
       // Βαθιά αναζήτηση (η θέση των πεδίων διαφέρει ανά endpoint/έκδοση/debug).
       const mark = deepFind(env, ['mark']) ?? deepFind(env, ['markNumber', 'aadeMark']);
       const uid = deepFind(env, ['invoiceUid', 'uid']);

@@ -105,7 +105,7 @@ export class VivaProvider {
   }
 
   /** Κατάσταση order (Basic auth Merchant ID:API Key). Επιστρέφει StateId (3 = Paid). */
-  async getOrderState(orderCode: string): Promise<{ stateId: number | null; paid: boolean; raw?: any; error?: string }> {
+  async getOrderState(orderCode: string): Promise<{ stateId: number | null; paid: boolean; transactionId?: string; raw?: any; error?: string }> {
     if (!this.cfg.merchantId || !this.cfg.apiKey) return { stateId: null, paid: false, error: 'Λείπουν Merchant ID / API Key (Basic auth).' };
     const h = hosts(this.cfg.env);
     const basic = Buffer.from(`${this.cfg.merchantId}:${this.cfg.apiKey}`).toString('base64');
@@ -114,6 +114,10 @@ export class VivaProvider {
     let d: any; try { d = JSON.parse(text); } catch { d = { raw: text }; }
     if (!res.ok) return { stateId: null, paid: false, error: `Viva order status HTTP ${res.status}` };
     const stateId = typeof d.StateId === 'number' ? d.StateId : null;
-    return { stateId, paid: stateId === VIVA_PAID_STATE, raw: d };
+    // Αναγνωριστικό συναλλαγής Viva (για δήλωση στον πάροχο ως TidNsp). Διάφορα πεδία ανά απάντηση.
+    const transactionId = d.TransactionId ?? d.transactionId
+      ?? (Array.isArray(d.Transactions) && d.Transactions.length ? (d.Transactions[0].TransactionId ?? d.Transactions[0].Id) : undefined)
+      ?? undefined;
+    return { stateId, paid: stateId === VIVA_PAID_STATE, transactionId: transactionId ? String(transactionId) : undefined, raw: d };
   }
 }

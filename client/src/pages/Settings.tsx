@@ -544,6 +544,8 @@ function DocumentsTab() {
   const credit = (cfg.docs && cfg.docs.credit) || {};
   const setApy = (k: string, v: any) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), apy: { ...((c.docs ?? {}).apy ?? {}), [k]: v } } }));
   const setCredit = (k: string, v: any) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), credit: { ...((c.docs ?? {}).credit ?? {}), [k]: v } } }));
+  const email = cfg.email || {};
+  const setEmail = (k: string, v: any) => setCfg((c: any) => ({ ...c, email: { ...(c.email ?? {}), [k]: v } }));
 
   async function save() {
     setMsg('');
@@ -583,6 +585,16 @@ function DocumentsTab() {
       setMsg(r.ok ? `✓ Ακυρώθηκε (void) το παραστατικό (guid ${lastGuid})` : '✗ ' + (r.error ?? 'Αποτυχία void'));
     } catch (e) { setMsg((e as Error).message); }
   }
+  async function testEmail() {
+    const to = window.prompt('Δοκιμαστική αποστολή email απόδειξης σε:');
+    if (!to) return;
+    setMsg('Αποθήκευση + αποστολή δοκιμαστικού email…');
+    try {
+      await api.put('/api/fiscal', { config: cfg });   // αποθήκευσε πρώτα τη ρύθμιση email
+      const r = await api.post<{ ok: boolean; error?: string }>('/api/fiscal/provider/test-email', { to });
+      setMsg(r.ok ? `✓ Στάλθηκε δοκιμαστικό email στο ${to}` : '✗ ' + (r.error ?? 'Αποτυχία αποστολής'));
+    } catch (e) { setMsg((e as Error).message); }
+  }
 
   const Sel = ({ list, value, onChange, fallback }: { list?: any[]; value: any; onChange: (v: number | null) => void; fallback: number }) =>
     list ? (
@@ -616,6 +628,7 @@ function DocumentsTab() {
         <div className="grid grid-cols-2 gap-3">
           <L label="Τύπος παραστατικού"><Sel list={lookups?.invoiceTypes} value={apy.invoiceTypeId} fallback={20} onChange={(v) => setApy('invoiceTypeId', v)} /></L>
           <L label="Σειρά"><input className="inp" placeholder="ΑΠY" value={apy.series ?? cfg.series ?? 'ΑΠY'} onChange={(e) => setApy('series', e.target.value)} /></L>
+          <L label="Αρχικός Αα (προαιρετικό)"><input className="inp" type="number" placeholder="αυτόματο (μέγιστο+1)" value={apy.aaStart ?? ''} onChange={(e) => setApy('aaStart', e.target.value === '' ? undefined : Number(e.target.value))} /></L>
           <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={apy.incomeCatId} fallback={2} onChange={(v) => setApy('incomeCatId', v)} /></L>
           <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={apy.incomeValId} fallback={8} onChange={(v) => setApy('incomeValId', v)} /></L>
           <L label="Πληρωμή · Μετρητά (PaymentId)"><input className="inp" type="number" value={apy.paymentCashId ?? 3} onChange={(e) => setApy('paymentCashId', Number(e.target.value))} /></L>
@@ -652,6 +665,28 @@ function DocumentsTab() {
           {!lastMark && <span className="text-xs text-gray-500 self-center">Κάνε πρώτα «Δοκιμή έκδοσης ΑΠΥ».</span>}
         </div>
         <p className="text-xs text-gray-500 mt-1">Αν το Πιστωτικό (11.4) δεν περνά στο demo, η <b>ακύρωση (void)</b> με το guid είναι ο εναλλακτικός μηχανισμός ακύρωσης του παρόχου.</p>
+      </div>
+
+      {/* ΚΑΡΤΑ: Email απόδειξης (online) */}
+      <div className="border rounded-lg p-4 mb-4 bg-white">
+        <div className="flex items-center mb-2">
+          <h4 className="font-semibold">Email απόδειξης online πωλήσεων (Resend)</h4>
+          <span className="ml-2 text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded">2ο email με σύνδεσμο ΑΠΥ</span>
+        </div>
+        <p className="text-xs text-gray-500 mb-2">Για τις <b>online πωλήσεις</b> (όλες με κάρτα), κατά τον συγχρονισμό εκδίδεται ΑΠΥ στον πάροχο και στέλνεται ένα 2ο email στον πελάτη με <b>σύνδεσμο προς το επίσημο PDF</b> της απόδειξης (ΜΑΡΚ). Συμπλήρωσε το κλειδί Resend και τον αποστολέα.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <L label="Ενεργό">
+            <select className="inp" value={email.enabled ? '1' : '0'} onChange={(e) => setEmail('enabled', e.target.value === '1')}>
+              <option value="0">Όχι</option><option value="1">Ναι</option>
+            </select>
+          </L>
+          <L label="Αποστολέας (From)"><input className="inp" placeholder="Όνομα <noreply@domain.gr>" value={email.from ?? ''} onChange={(e) => setEmail('from', e.target.value)} /></L>
+          <L label="Κλειδί Resend (API key)"><input className="inp" type="password" placeholder="re_..." value={email.resendKey ?? ''} onChange={(e) => setEmail('resendKey', e.target.value)} /></L>
+          <L label="Reply-To (προαιρετικό)"><input className="inp" placeholder="info@domain.gr" value={email.replyTo ?? ''} onChange={(e) => setEmail('replyTo', e.target.value)} /></L>
+        </div>
+        <div className="flex gap-2 mt-3">
+          <button onClick={testEmail} className="bg-sky-600 text-white px-4 py-1.5 rounded text-sm">Δοκιμαστικό email</button>
+        </div>
       </div>
 
       <button onClick={save} className="bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση παραστατικών</button>
@@ -698,12 +733,14 @@ function DocumentsTab() {
 }
 
 /* ---------------- Φόρμα εισιτηρίου (print template) ---------------- */
-const PLACEHOLDERS = ['venueName', 'vatNumber', 'address', 'cityLine', 'phone', 'email', 'title', 'subtitle', 'qty', 'unitPrice', 'lineTotal', 'vatRate', 'vatAmount', 'netValue', 'serial', 'datetime', 'paymentMethod', 'seat', 'show', 'legalNote'];
+const PLACEHOLDERS = ['venueName', 'vatNumber', 'address', 'cityLine', 'phone', 'email', 'title', 'subtitle', 'qty', 'unitPrice', 'lineTotal', 'total', 'vatRate', 'vatAmount', 'netValue', 'serial', 'datetime', 'paymentMethod', 'seat', 'show', 'customerName', 'customerVat', 'docType', 'series', 'aa', 'mark', 'legalNote'];
 const SAMPLE: Record<string, string> = {
   venueName: 'ΜΟΥΣΕΙΟ', vatNumber: '123456789', address: 'Οδός 1', cityLine: '10675 Αθήνα', phone: '2100000000', email: 'info@x.gr',
-  title: 'ΚΑΝΟΝΙΚΟ', subtitle: 'Γενική Είσοδος', qty: '1', unitPrice: '5.00', lineTotal: '5.00', vatRate: '6',
+  title: 'ΚΑΝΟΝΙΚΟ', subtitle: 'Γενική Είσοδος', qty: '1', unitPrice: '5.00', lineTotal: '5.00', total: '10.00', vatRate: '6',
   vatAmount: '0.28', netValue: '4.72',
   serial: '00000123', datetime: '01/06/2026 19:49', paymentMethod: 'ΜΕΤΡΗΤΑ', seat: 'A12', show: 'ΤΑΙΝΙΑ 1',
+  customerName: 'ΠΑΠΑΔΟΠΟΥΛΟΣ Α.', customerVat: '044556677', docType: 'ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ', series: 'ΑΠΥ', aa: '5',
+  mark: '400001234567890',
   legalNote: 'Δεν αποτελεί φορολογικό παραστατικό',
 };
 const stripTags = (line: string) => {

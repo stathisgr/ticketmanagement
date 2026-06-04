@@ -24,7 +24,7 @@ export default function POS() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [viva, setViva] = useState<{ provider: string; hasTerminal: boolean }>({ provider: 'none', hasTerminal: false });
-  const [pendingPay, setPendingPay] = useState<{ amount: number; run: () => void } | null>(null);
+  const [pendingPay, setPendingPay] = useState<{ amount: number; run: (txid?: string) => void } | null>(null);
 
   useEffect(() => {
     api.get<TicketType[]>('/api/ticket-types?enabledOnly=1').then(setTypes).catch((e) => setError(e.message));
@@ -39,10 +39,10 @@ export default function POS() {
     setQty((q) => { const n = Number(String(q === 1 ? '' : q) + d); return Math.min(999, Math.max(1, n)); });
   }
 
-  async function issueSale(items: { ticket_type_id: number; qty: number }[], method: PaymentMethod) {
+  async function issueSale(items: { ticket_type_id: number; qty: number }[], method: PaymentMethod, vivaTxId?: string) {
     setBusy(true); setError('');
     try {
-      const res = await api.post<SaleResult>('/api/sales', { items, payment_method: method, customer_id: customer?.id ?? null, station: getStation() });
+      const res = await api.post<SaleResult>('/api/sales', { items, payment_method: method, customer_id: customer?.id ?? null, station: getStation(), viva_transaction_id: vivaTxId });
       setResult(res);
       if (res.printTicket !== false) printTickets(res.tickets.map((t) => t.preview));
       return true;
@@ -52,7 +52,7 @@ export default function POS() {
 
   // Πάτημα κουμπιού: αν έχει προεπιλεγμένο τρόπο → άμεση έκδοση· αλλιώς → προσθήκη στο καλάθι.
   // Αν πληρωμή με κάρτα & ενεργό Viva → πρώτα χρέωση, μετά έκδοση.
-  function withCard(method: PaymentMethod, amount: number, run: () => void) {
+  function withCard(method: PaymentMethod, amount: number, run: (txid?: string) => void) {
     if (method === 'card' && viva.provider === 'viva') setPendingPay({ amount, run });
     else run();
   }
@@ -61,7 +61,7 @@ export default function POS() {
     if (busy) return;
     if (isPreset(t)) {
       const method = t.default_payment as PaymentMethod;
-      withCard(method, t.price * qty, async () => { const ok = await issueSale([{ ticket_type_id: t.id, qty }], method); if (ok) setQty(1); });
+      withCard(method, t.price * qty, async (txid) => { const ok = await issueSale([{ ticket_type_id: t.id, qty }], method, txid); if (ok) setQty(1); });
     } else {
       setResult(null);
       setCart((prev) => {
@@ -75,8 +75,8 @@ export default function POS() {
 
   async function issueCart() {
     if (!cart.length) return;
-    withCard(payment, total, async () => {
-      const ok = await issueSale(cart.map((l) => ({ ticket_type_id: l.type.id, qty: l.qty })), payment);
+    withCard(payment, total, async (txid) => {
+      const ok = await issueSale(cart.map((l) => ({ ticket_type_id: l.type.id, qty: l.qty })), payment, txid);
       if (ok) setCart([]);
     });
   }
@@ -154,7 +154,7 @@ export default function POS() {
 
       {pendingPay && (
         <VivaPay amount={pendingPay.amount} hasTerminal={viva.hasTerminal}
-          onPaid={() => { const run = pendingPay.run; setPendingPay(null); run(); }}
+          onPaid={(txid) => { const run = pendingPay.run; setPendingPay(null); run(txid); }}
           onCancel={() => setPendingPay(null)} />
       )}
     </div>

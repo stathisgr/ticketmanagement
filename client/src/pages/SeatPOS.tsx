@@ -38,7 +38,7 @@ export default function SeatPOS() {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [viva, setViva] = useState<{ provider: string; hasTerminal: boolean }>({ provider: 'none', hasTerminal: false });
-  const [pendingPay, setPendingPay] = useState<{ amount: number; run: () => void } | null>(null);
+  const [pendingPay, setPendingPay] = useState<{ amount: number; run: (txid?: string) => void } | null>(null);
 
   async function loadShows(d: string) {
     setShow(null); setSeats([]); setSelected({});
@@ -98,15 +98,15 @@ export default function SeatPOS() {
       : Object.entries(selected).map(([seatId, sttId]) => ({ seat_id: Number(seatId), show_ticket_type_id: sttId }));
     if (!items.length) return;
     // Κάρτα + Viva → πρώτα χρέωση, μετά έκδοση.
-    if (payment === 'card' && viva.provider === 'viva') { setPendingPay({ amount: total, run: () => doIssue(items) }); return; }
+    if (payment === 'card' && viva.provider === 'viva') { setPendingPay({ amount: total, run: (txid) => doIssue(items, txid) }); return; }
     doIssue(items);
   }
 
-  async function doIssue(items: { seat_id?: number; show_ticket_type_id: number; qty?: number }[]) {
+  async function doIssue(items: { seat_id?: number; show_ticket_type_id: number; qty?: number }[], vivaTxId?: string) {
     setBusy(true); setError(''); setMsg('');
     try {
       const res = await api.post<{ saleId: number; total: number; tickets: { preview: string }[]; printTicket?: boolean; fiscal?: { ok: boolean; mark?: string; error?: string } | null }>('/api/sales', {
-        items, payment_method: payment, show_date: date, customer_id: customer?.id ?? null, station: getStation(),
+        items, payment_method: payment, show_date: date, customer_id: customer?.id ?? null, station: getStation(), viva_transaction_id: vivaTxId,
       });
       if (res.printTicket !== false) printTickets((res.tickets ?? []).map((t) => t.preview));
       const n = (res.tickets ?? []).length;
@@ -247,7 +247,7 @@ export default function SeatPOS() {
 
       {pendingPay && (
         <VivaPay amount={pendingPay.amount} hasTerminal={viva.hasTerminal}
-          onPaid={() => { const run = pendingPay.run; setPendingPay(null); run(); }}
+          onPaid={(txid) => { const run = pendingPay.run; setPendingPay(null); run(txid); }}
           onCancel={() => setPendingPay(null)} />
       )}
     </div>

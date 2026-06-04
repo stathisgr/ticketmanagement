@@ -25,6 +25,13 @@ export interface TicketContext {
   legalNote?: string; // π.χ. «Δεν αποτελεί φορολογικό παραστατικό» όταν την απόδειξη κόβει η ταμειακή
   mark?: string;      // ΜΑΡΚ παρόχου (myDATA) — όταν το εισιτήριο είναι το φορολογικό παραστατικό
   markQr?: string;    // QR myDATA (AADE URL) — για [qrmark]
+  // Στοιχεία απόδειξης (όταν θέλουμε εισιτήριο + απόδειξη μαζί, σε λειτουργία παρόχου):
+  customerName?: string; // Επωνυμία/Όνομα πελάτη (κενό = λιανικής)
+  customerVat?: string;  // ΑΦΜ πελάτη
+  docType?: string;      // Τύπος παραστατικού, π.χ. «ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ»
+  series?: string;       // Σειρά παραστατικού (π.χ. ΑΠΥ)
+  aa?: string;           // Αύξων αριθμός παραστατικού
+  total?: number;        // Συνολικό ποσό της πώλησης (όλες οι γραμμές)
 }
 
 /** Υπολογισμός καθαρής αξίας & ΦΠΑ από τιμή ΜΕ ΦΠΑ (VAT-inclusive). */
@@ -57,6 +64,12 @@ export function fillTemplate(tpl: string, ctx: TicketContext): string {
     show: ctx.show ?? '',
     legalNote: ctx.legalNote ?? '',
     mark: ctx.mark ?? '',
+    customerName: ctx.customerName ?? '',
+    customerVat: ctx.customerVat ?? '',
+    docType: ctx.docType ?? '',
+    series: ctx.series ?? '',
+    aa: ctx.aa ?? '',
+    total: ctx.total != null ? ctx.total.toFixed(2) : ctx.lineTotal.toFixed(2),
   };
   return (tpl ?? '').replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => map[k] ?? '');
 }
