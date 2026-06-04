@@ -90,7 +90,11 @@ export default function App() {
   return (
     <div className="h-full flex flex-col bg-gray-100">
       <header className="bg-slate-800 text-white flex items-center px-4 h-14 shrink-0">
-        <span className="font-bold text-lg mr-6">🎟️ {venue?.name ?? 'Ticket Manager'}</span>
+        <span className="font-bold text-lg mr-6 flex items-center gap-2">
+          <img src="/assets/logo_install.svg" alt="" className="h-9 w-auto"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          {venue?.name ?? 'Ticket Manager'}
+        </span>
         <nav className="flex gap-1">
           {tabs
             .filter((t) => t.show && (!t.managerOnly || user.role === 'manager'))

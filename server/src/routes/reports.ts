@@ -60,6 +60,18 @@ export default async function reportRoutes(app: FastifyInstance) {
     };
     for (const r of chanRows) if (byChannel[r.source]) byChannel[r.source] = { sales: Number(r.sales), gross: +Number(r.gross).toFixed(2), qty: Number(r.qty) };
 
+    // Ακυρώσεις / Επιστροφές: από τις αρνητικές κινήσεις ταμείου (credit < 0) + πλήθος ακυρωθέντων εισιτηρίων.
+    const refRows = db.prepare(
+      `SELECT method, COUNT(*) AS count, COALESCE(SUM(-credit),0) AS total
+         FROM till_movements WHERE credit < 0 AND date(datetime) BETWEEN ? AND ? GROUP BY method`
+    ).all(from, to) as any[];
+    const refundByMethod: Record<string, number> = { cash: 0, card: 0 };
+    let refundCount = 0; let refundTotal = 0;
+    for (const r of refRows) { refundCount += Number(r.count); refundTotal += Number(r.total); if (r.method in refundByMethod) refundByMethod[r.method] = +Number(r.total).toFixed(2); }
+    const cancelledTickets = Number((db.prepare(
+      `SELECT COUNT(*) AS c FROM tickets WHERE cancelled_at IS NOT NULL AND date(cancelled_at) BETWEEN ? AND ?`
+    ).get(from, to) as any).c || 0);
+
     return {
       from, to,
       gross: +Number(totals.gross).toFixed(2),
@@ -69,6 +81,7 @@ export default async function reportRoutes(app: FastifyInstance) {
       tickets: Number(tickets.qty),
       avgPerSale: totals.sales ? +(Number(totals.gross) / Number(totals.sales)).toFixed(2) : 0,
       byMethod, bySource, byChannel,
+      refunds: { count: refundCount, total: +refundTotal.toFixed(2), byMethod: refundByMethod, cancelledTickets },
     };
   });
 

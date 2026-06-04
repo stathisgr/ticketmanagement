@@ -6,7 +6,6 @@ import { RapidSignProvider, vatCatIdFromRate, type FiscalEnv } from '../fiscal/r
 import { VivaProvider, type VivaEnv } from '../fiscal/viva.js';
 import { sendEmail, receiptEmailHtml } from '../online/email.js';
 import { issuePendingOnline } from '../online/sync.js';
-import { creditForSale } from '../fiscal/issue.js';
 
 export default async function venueRoutes(app: FastifyInstance) {
   app.get('/api/venue', { preHandler: authenticate }, async () => {
@@ -184,7 +183,7 @@ export default async function venueRoutes(app: FastifyInstance) {
   // Αναλυτική λίστα παραστατικών (σελίδα «Παραστατικά») με φίλτρα ημ/νιών + αναζήτηση.
   app.get('/api/fiscal/documents/list', { preHandler: requireManager }, async (req) => {
     const { from, to, q } = (req.query ?? {}) as { from?: string; to?: string; q?: string };
-    const where: string[] = ["fd.role = 'sale'"];
+    const where: string[] = ['1=1'];   // όλα τα παραστατικά (ΑΠΥ + Πιστωτικά)
     const params: any[] = [];
     if (from) { where.push('date(fd.created_at) >= date(?)'); params.push(from); }
     if (to) { where.push('date(fd.created_at) <= date(?)'); params.push(to); }
@@ -195,7 +194,7 @@ export default async function venueRoutes(app: FastifyInstance) {
     }
     return db.prepare(
       `SELECT fd.id, fd.sale_id, fd.role, fd.invoice_type_id, fd.series, fd.aa, fd.mark, fd.status,
-              fd.net, fd.vat, fd.total, fd.created_at, fd.raw, fd.guid,
+              fd.net, fd.vat, fd.total, fd.created_at, fd.raw, fd.guid, fd.qr_url, fd.qr_provider, fd.correlated_mark,
               c.full_name AS customer_name, c.vat_number AS customer_vat,
               (SELECT si.show_date FROM sale_items si WHERE si.sale_id = fd.sale_id LIMIT 1) AS show_date,
               (SELECT sh.start_time FROM sale_items si JOIN shows sh ON sh.id = si.show_id WHERE si.sale_id = fd.sale_id LIMIT 1) AS show_time,
@@ -210,17 +209,9 @@ export default async function venueRoutes(app: FastifyInstance) {
     ).all(...params);
   });
 
-  // Έκδοση Πιστωτικού (αντιλογιστικό) για επιλεγμένα παραστατικά από τη λίστα.
-  app.post('/api/fiscal/documents/credit', { preHandler: requireManager }, async (req, reply) => {
-    const { saleIds, reason } = (req.body ?? {}) as { saleIds?: number[]; reason?: string };
-    if (!Array.isArray(saleIds) || !saleIds.length) return reply.code(400).send({ error: 'Δεν επιλέχθηκαν παραστατικά.' });
-    const results: { saleId: number; ok: boolean; mark?: string; error?: string }[] = [];
-    for (const sid of saleIds) {
-      try { const r = await creditForSale(Number(sid), reason || 'Έκδοση πιστωτικού'); results.push({ saleId: Number(sid), ok: !!(r && r.ok), mark: r?.mark, error: r?.error }); }
-      catch (e) { results.push({ saleId: Number(sid), ok: false, error: (e as Error).message }); }
-    }
-    return { results, issued: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
-  });
+  // (Η έκδοση Πιστωτικού «/api/fiscal/documents/credit» έχει μεταφερθεί στο routes/sales.ts,
+  //  ώστε εκτός από το παραστατικό να γίνεται και ΠΛΗΡΗΣ τοπικός αντιλογισμός: ακύρωση εισιτηρίων,
+  //  μείωση τζίρου/ΦΠΑ και αρνητική κίνηση ταμείου — να μη μετράει ως έσοδο.)
 
   // Ανάκτηση όλων των λιστών (lookups) του παρόχου — για τη ρύθμιση παραστατικών.
   app.get('/api/fiscal/provider/lookups', { preHandler: requireManager }, async (_req, reply) => {
@@ -283,10 +274,10 @@ export default async function venueRoutes(app: FastifyInstance) {
       env: (cfg.env as FiscalEnv) === 'prod' ? 'prod' : 'dev',
       username: cfg.username, password: cfg.password, activationCode: cfg.activationCode,
     });
+    // ΛΙΑΝΙΚΗ (type 22): ΧΩΡΙΣ correlatedMarks, ΧΩΡΙΣ αρνητικά — απλό νέο παραστατικό (οδηγία RBS).
     return provider.postInvoice({
       invoiceTypeId: Number(cr.invoiceTypeId) || 22, // 11.4 Πιστωτικό Στοιχ. Λιανικής
       series: cr.series || 'ΠΑΠΥ', aa: String(Date.now() % 1000000), counter: 1,
-      correlatedMarks: [String(mark)],
       issueDate: new Date().toISOString(), currencyId: 47,
       issuer: {
         vatNumber: cfg.issuerVat || venue?.vat_number || '619333103', countryId: 87, branch: 0,
@@ -300,7 +291,7 @@ export default async function venueRoutes(app: FastifyInstance) {
         incomeCatId: Number.isFinite(Number(cr.incomeCatId)) ? Number(cr.incomeCatId) : 2,
         incomeValId: Number.isFinite(Number(cr.incomeValId)) ? Number(cr.incomeValId) : 8,
       }],
-      payments: [{ payGuid: randomUUID(), paymentId: 3, net: 10.0, vat: 2.4, amount: 12.4 }],
+      payments: [{ payGuid: randomUUID(), paymentId: 3, net: 10.0, vat: 2.4, amount: 12.4, paymentStatus: 2, acquirerId: Number(cr.acquirerId) || 122, tidNsp: String(Date.now()).slice(-8) }],
     });
   });
 

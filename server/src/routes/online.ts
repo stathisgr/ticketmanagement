@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { db } from '../db.js';
 import { authenticate, requireManager } from '../auth.js';
-import { pushPublication, pushRange, unpublish, pull } from '../online/sync.js';
+import { pushPublication, pushRange, unpublish, pull, fullCheck } from '../online/sync.js';
 
 export default async function onlineRoutes(app: FastifyInstance) {
   // --- Ρυθμίσεις σύνδεσης ---
@@ -71,6 +71,12 @@ export default async function onlineRoutes(app: FastifyInstance) {
   // Διάβασμα εισιτηρίων από το Cloud — επιτρέπεται και στον ταμία.
   app.post('/api/online/pull', { preHandler: authenticate }, async (_req, reply) => {
     try { return await pull(); }
+    catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+  });
+
+  // Πλήρης έλεγχος με το Cloud — σαρώνει ΟΛΕΣ τις δημοσιεύσεις και επανεισάγει τυχόν χαμένες πωλήσεις.
+  app.post('/api/online/full-check', { preHandler: requireManager }, async (_req, reply) => {
+    try { return await fullCheck(); }
     catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
   });
 

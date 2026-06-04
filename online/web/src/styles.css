@@ -46,7 +46,9 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 /* Booking: ημερολόγιο + θεάματα ημέρας */
 .booking { display: grid; grid-template-columns: 320px 1fr; gap: 16px; align-items: start; }
 @media (max-width: 640px) { .booking { grid-template-columns: 1fr; } }
-.calwrap { position: sticky; top: 12px; }
+.calwrap { position: sticky; top: 12px; z-index: 1; }
+/* Σε κινητό (στοιβαγμένο layout) ΟΧΙ sticky — αλλιώς οι κάρτες θεαμάτων «σκεπάζουν» το ημερολόγιο. */
+@media (max-width: 640px) { .calwrap { position: static; } }
 .cal { background: #fff; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,.07); padding: 12px; }
 .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .cal-title { font-weight: 700; text-transform: capitalize; }

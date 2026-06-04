@@ -551,6 +551,83 @@ export default async function salesRoutes(app: FastifyInstance) {
     return { ...rendered, reprint: true, dispatched, dispatchInfo, printTicket: !dispatched };
   });
 
+  // Εκτύπωση ΠΙΣΤΩΤΙΚΟΥ (όχι εισιτηρίου) — δείχνει στοιχεία πιστωτικού: τύπο, σειρά/ΑΑ, ΜΑΡΚ, είδη.
+  app.post('/api/fiscal/documents/credit-print', { preHandler: requireManager }, async (req, reply) => {
+    const { docId } = (req.body ?? {}) as { docId?: number };
+    const doc = db.prepare("SELECT * FROM fiscal_documents WHERE id = ? AND role = 'credit'").get(Number(docId)) as any;
+    if (!doc) return reply.code(404).send({ error: 'Δεν βρέθηκε πιστωτικό' });
+    const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(doc.sale_id) as any;
+    const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(doc.sale_id) as any[];
+    const customer = sale?.customer_id ? (db.prepare('SELECT * FROM customers WHERE id = ?').get(sale.customer_id) as any) : null;
+    const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
+    const tplRow = db.prepare('SELECT * FROM print_templates WHERE id = 1').get() as any;
+    let tpl: any = {};
+    if (tplRow) {
+      let p: any = {}; try { p = JSON.parse(tplRow.params ?? '{}'); } catch { /* default */ }
+      tpl = { header: tplRow.header, details: tplRow.details, footer: tplRow.footer, withQr: p.withQr !== false, codePage: p.codePage, escposPageId: p.escposPageId, sizes: p.sizes };
+    }
+    const targetPrinter = db.prepare('SELECT * FROM printers WHERE is_default = 1').get() as any;
+    const printerType: PrinterType = (targetPrinter?.type as PrinterType) ?? (tplRow?.printer_type as PrinterType) ?? (venue?.default_printer_type as PrinterType) ?? 'escpos80';
+    let tpl2 = tpl;
+    if (doc.mark) {
+      const footer = String(tpl.footer ?? '');
+      if (!/\{\{\s*mark\s*\}\}/i.test(footer)) tpl2 = { ...tpl, footer: footer + '\n[c]ΜΑΡΚ: {{mark}}' + (doc.qr_url ? '\n[c][qrmark]' : '') };
+    }
+    const dtv = (s?: string) => (s ? s.replace('T', ' ').slice(0, 16) : '');
+    const previews = items.map((it: any) => {
+      const show = it.show_id ? (db.prepare('SELECT title FROM shows WHERE id = ?').get(it.show_id) as any) : null;
+      const seat = it.seat_id ? (db.prepare('SELECT display_name FROM seats WHERE id = ?').get(it.seat_id) as any) : null;
+      const r = renderTicket({
+        venueName: venue?.name ?? '', vatNumber: venue?.vat_number, address: venue?.address,
+        cityLine: [venue?.postal_code, venue?.city].filter(Boolean).join(' '), phone: venue?.phone, email: venue?.email,
+        title: it.title, subtitle: show?.title, qty: Number(it.qty) || 1, unitPrice: it.unit_price, lineTotal: it.line_total, vatRate: it.vat_rate,
+        serial: '', datetime: dtv(doc.created_at), paymentMethod: 'ΕΠΙΣΤΡΟΦΗ', seat: seat?.display_name, show: show?.title, legalNote: '',
+        customerName: customer?.full_name ?? '', customerVat: customer?.vat_number ?? '',
+        docType: 'ΠΙΣΤΩΤΙΚΟ ΣΤΟΙΧ. ΛΙΑΝΙΚΗΣ', series: doc.series, aa: String(doc.aa), mark: doc.mark, markQr: doc.qr_url,
+        total: Number(doc.total), qrPayload: doc.mark ?? '',
+      }, printerType, tpl2);
+      return (r as any).preview as string;
+    });
+    return { previews };
+  });
+
+  // Έκδοση Πιστωτικού για επιλεγμένα παραστατικά (σελίδα «Παραστατικά»): εκδίδει ΠΑΠΥ στον πάροχο
+  // ΚΑΙ κάνει πλήρη τοπικό αντιλογισμό (ακύρωση εισιτηρίων, μείωση τζίρου/ΦΠΑ, αρνητική κίνηση ταμείου)
+  // ώστε η επιστροφή να ΜΗΝ μετράει ως έσοδο.
+  app.post('/api/fiscal/documents/credit', { preHandler: requireManager }, async (req, reply) => {
+    const { saleIds, reason } = (req.body ?? {}) as { saleIds?: number[]; reason?: string };
+    if (!Array.isArray(saleIds) || !saleIds.length) return reply.code(400).send({ error: 'Δεν επιλέχθηκαν παραστατικά.' });
+    const user = req.user as JwtUser;
+    const why = (reason && reason.trim()) || 'Έκδοση πιστωτικού / επιστροφή';
+    const results: { saleId: number; ok: boolean; mark?: string; error?: string }[] = [];
+    for (const sid of saleIds) {
+      const saleId = Number(sid);
+      try {
+        // 1) ΠΡΩΤΑ το παραστατικό (διαβάζει είδη/ποσά στις αρχικές τιμές).
+        const credit = await creditForSale(saleId, why);
+        if (!credit || !credit.ok) { results.push({ saleId, ok: false, error: credit?.error ?? 'Αποτυχία έκδοσης πιστωτικού' }); continue; }
+        // 2) Τοπικός αντιλογισμός όλων των μη-ακυρωμένων εισιτηρίων της πώλησης.
+        const tks = db.prepare(
+          `SELECT t.id, t.serial, si.id AS si_id, si.unit_price, si.vat_rate, s.payment_method
+             FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id JOIN sales s ON s.id = si.sale_id
+            WHERE si.sale_id = ? AND t.cancelled_at IS NULL`
+        ).all(saleId) as any[];
+        tx(() => {
+          for (const t of tks) {
+            const unit = +Number(t.unit_price || 0).toFixed(2);
+            const vat = +((unit * (t.vat_rate || 0)) / (100 + (t.vat_rate || 0))).toFixed(2);
+            db.prepare("UPDATE tickets SET cancelled_at = datetime('now','localtime'), cancelled_by = ?, cancel_reason = ? WHERE id = ?").run(user.id, why, t.id);
+            db.prepare('UPDATE sale_items SET qty = MAX(0, qty - 1), line_total = ROUND(MAX(0, line_total - ?), 2) WHERE id = ?').run(unit, t.si_id);
+            db.prepare('UPDATE sales SET total = ROUND(MAX(0, total - ?), 2), vat_total = ROUND(MAX(0, vat_total - ?), 2) WHERE id = ?').run(unit, vat, saleId);
+            db.prepare("INSERT INTO till_movements (datetime, user_id, sale_id, credit, method, reason) VALUES (datetime('now','localtime'), ?, ?, ?, ?, ?)").run(user.id, saleId, -unit, t.payment_method, `Πιστωτικό/επιστροφή ${t.serial}`);
+          }
+        });
+        results.push({ saleId, ok: true, mark: credit.mark });
+      } catch (e) { results.push({ saleId, ok: false, error: (e as Error).message }); }
+    }
+    return { results, issued: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
+  });
+
   // Ακύρωση εισιτηρίου (ΜΟΝΟ Διαχειριστής). Το εισιτήριο ΔΕΝ διαγράφεται:
   // διατηρείται ο αριθμός + σήμανση/αιτία/χρόνος/χρήστης (audit). Γίνεται αντιλογισμός
   // (επιστροφή) στο ταμείο και αφαιρείται η αξία από έσοδα/ΦΠΑ.

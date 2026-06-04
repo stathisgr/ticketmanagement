@@ -45,6 +45,7 @@ export interface IssueRequest {
   issueDate: string;            // ISO
   issuer: IssueParty;
   counterpart?: IssueParty;     // λιανική: VatNumber 000000000
+  showCounterpart?: boolean;    // true → εμφάνιση στοιχείων συμβαλλόμενου στο παραστατικό
   lines: IssueLine[];
   payments: { payGuid: string; paymentId: number; net?: number; vat?: number; amount: number; acquirerId?: number; tidNsp?: string; paymentStatus?: number }[];
   incomeCatId?: number; incomeValId?: number;
@@ -145,7 +146,7 @@ export class RapidSignProvider {
         TransFailure: 0,
         Template: 3,
         FileType: 2,
-        ShowCounterpart: false,
+        ShowCounterpart: req.showCounterpart ?? false,
         DeferredTransaction: false,
         ReceiptStatus: 0,
         PaymentStatus: 0,
@@ -182,6 +183,8 @@ export class RapidSignProvider {
           Branch: cp.branch ?? 0,
           Code: cp.code ?? '',
           Name: cp.name,
+          ...(cp.phone ? { Phone: cp.phone } : {}),
+          ...(cp.email ? { Email: cp.email } : {}),
           Address: cp.address,
         },
         InvoiceDetails: req.lines.map((l, i) => {
@@ -254,7 +257,8 @@ export class RapidSignProvider {
       }
       return {
         ok: true, guid, mark: String(mark ?? ''), uid: uid ? String(uid) : undefined,
-        authenticationCode, authCodeMat: deepFind(env, ['authCodeMat']), qrCode, qrCodeMyData, raw: env,
+        authenticationCode, authCodeMat: deepFind(env, ['authCodeMat']), qrCode, qrCodeMyData,
+        raw: { request: body, response: env },
       };
     } catch (e) {
       return { ok: false, error: (e as Error).message };

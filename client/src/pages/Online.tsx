@@ -71,6 +71,15 @@ export default function Online() {
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
 
+  async function fullCheck() {
+    setBusy(true); setError(''); setMsg('');
+    try {
+      const r = await api.post<{ publications: number; importedSales: number }>('/api/online/full-check', {});
+      setMsg(`Πλήρης έλεγχος Cloud ολοκληρώθηκε — ελέγχθηκαν ${r.publications} δημοσιεύσεις, εισήχθησαν ${r.importedSales} πωλήσεις που έλειπαν.`);
+      reload();
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+
   return (
     <div className="p-4 max-w-4xl mx-auto space-y-4">
       <h1 className="text-2xl font-bold">Online Κρατήσεις</h1>
@@ -124,9 +133,15 @@ export default function Online() {
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex items-center justify-between mb-2">
           <h2 className="font-semibold text-lg">Δημοσιευμένα online</h2>
-          <button onClick={pull} disabled={busy} className="bg-emerald-700 text-white px-3 py-1.5 rounded text-sm disabled:opacity-40">
-            ⟳ Συγχρονισμός τώρα (κατέβασμα πωλήσεων)
-          </button>
+          <div className="flex gap-2">
+            <button onClick={fullCheck} disabled={busy} title="Σαρώνει ΟΛΕΣ τις δημοσιεύσεις και επανεισάγει τυχόν πωλήσεις που έλειπαν"
+              className="bg-slate-700 text-white px-3 py-1.5 rounded text-sm disabled:opacity-40">
+              🔎 Πλήρης έλεγχος Cloud
+            </button>
+            <button onClick={pull} disabled={busy} className="bg-emerald-700 text-white px-3 py-1.5 rounded text-sm disabled:opacity-40">
+              ⟳ Συγχρονισμός τώρα (κατέβασμα πωλήσεων)
+            </button>
+          </div>
         </div>
         <table className="w-full text-sm">
           <thead><tr className="text-left text-gray-500 border-b">

@@ -8,7 +8,7 @@ interface DocRow {
   mark: string | null; status: string; net: number; vat: number; total: number; created_at: string;
   raw: string | null; guid: string | null; customer_name: string | null; customer_vat: string | null;
   show_date: string | null; show_time: string | null; ticket_count: number; ticket_ids: string | null;
-  has_credit: number;
+  has_credit: number; qr_url: string | null; qr_provider: string | null; correlated_mark: string | null;
 }
 
 const eur = (n: any) => (Number(n) || 0).toFixed(2);
@@ -69,10 +69,17 @@ export default function Documents() {
   }
 
   async function reprint(d: DocRow) {
-    const ids = (d.ticket_ids ?? '').split(',').map((x) => Number(x)).filter(Boolean);
-    if (!ids.length) { setMsg('Δεν βρέθηκαν εισιτήρια για επανεκτύπωση.'); return; }
     setBusy(true); setMsg('');
     try {
+      if (d.role === 'credit') {
+        // Πιστωτικό: εκτύπωση του ίδιου του πιστωτικού (τύπος/σειρά/ΑΑ/ΜΑΡΚ), όχι του εισιτηρίου.
+        const res = await api.post<{ previews: string[] }>('/api/fiscal/documents/credit-print', { docId: d.id });
+        if (res.previews?.length) printTickets(res.previews);
+        else setMsg('Δεν βρέθηκαν στοιχεία πιστωτικού.');
+        return;
+      }
+      const ids = (d.ticket_ids ?? '').split(',').map((x) => Number(x)).filter(Boolean);
+      if (!ids.length) { setMsg('Δεν βρέθηκαν εισιτήρια για επανεκτύπωση.'); return; }
       const previews: string[] = [];
       for (const id of ids) {
         const res = await api.post<{ preview: string; printTicket?: boolean; dispatched?: boolean }>(`/api/tickets/${id}/reprint`, { station: getStation() });
@@ -128,6 +135,7 @@ export default function Documents() {
           <thead className="bg-gray-100 text-left">
             <tr>
               <th className="p-2"><input type="checkbox" checked={allSel} onChange={(e) => setSel(e.target.checked ? new Set(selectableIds) : new Set())} /></th>
+              <th className="p-2">PDF</th>
               <th className="p-2">#Πώλ.</th>
               <th className="p-2">Τύπος</th>
               <th className="p-2">Κατ.</th>
@@ -150,8 +158,16 @@ export default function Documents() {
                     ? <input type="checkbox" checked={sel.has(d.sale_id)} onChange={() => toggle(d.sale_id)} />
                     : <span className="text-gray-300">—</span>}
                 </td>
+                <td className="p-2 text-center">
+                  {(d.qr_provider || d.qr_url)
+                    ? <button title="Άνοιγμα PDF παρόχου" onClick={() => window.open((d.qr_provider || d.qr_url)!, '_blank', 'noopener')}
+                        className="text-slate-600 hover:text-blue-600 align-middle">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+                      </button>
+                    : <span className="text-gray-300">—</span>}
+                </td>
                 <td className="p-2">#{d.sale_id}</td>
-                <td className="p-2">{d.series || 'ΑΠΥ'} {d.aa}</td>
+                <td className="p-2"><span className={d.role === 'credit' ? 'text-red-700' : ''}>{d.series} {d.aa}</span></td>
                 <td className="p-2">{statusCell(d)}</td>
                 <td className="p-2 font-mono text-xs">{d.mark || '—'}</td>
                 <td className="p-2">{dt(d.created_at)}</td>
@@ -167,7 +183,7 @@ export default function Documents() {
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && !busy && <tr><td colSpan={13} className="p-4 text-gray-400 text-center">Κανένα παραστατικό.</td></tr>}
+            {rows.length === 0 && !busy && <tr><td colSpan={14} className="p-4 text-gray-400 text-center">Κανένα παραστατικό.</td></tr>}
           </tbody>
         </table>
       </div>

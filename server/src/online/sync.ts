@@ -33,6 +33,23 @@ export async function issueAndEmailSale(saleId: number): Promise<FiscalOutcome |
   return fr;
 }
 
+/**
+ * ΠΛΗΡΗΣ ΕΛΕΓΧΟΣ με το Cloud: σαρώνει ΟΛΕΣ τις δημοσιεύσεις (ακόμη & ανενεργές/παλιές) και
+ * επανεισάγει τυχόν online πωλήσεις που δεν είχαν κατέβει (idempotent — αγνοεί ό,τι υπάρχει ήδη).
+ * Χρήσιμο για να μη χαθεί καμία πώληση (π.χ. αν διακόπηκε ο συγχρονισμός).
+ */
+export async function fullCheck(): Promise<{ publications: number; importedSales: number }> {
+  const c = cfg();
+  const pubs = db.prepare('SELECT * FROM online_publications WHERE cloud_show_id IS NOT NULL').all() as any[];
+  const webId = (db.prepare("SELECT id FROM users WHERE username = 'web'").get() as any)?.id ?? null;
+  let importedSales = 0;
+  for (const pub of pubs) {
+    try { importedSales += await importShowOrders(c, pub, webId); }
+    catch { /* συνεχίζουμε με τις υπόλοιπες δημοσιεύσεις */ }
+  }
+  return { publications: pubs.length, importedSales };
+}
+
 /** Έκδοση ΑΠΥ για όλες τις online πωλήσεις που ΔΕΝ έχουν διαβιβασμένο παραστατικό (επανέκδοση εκκρεμών). */
 export async function issuePendingOnline(): Promise<{ pending: number; issued: number; failed: number }> {
   const rows = db.prepare(

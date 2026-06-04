@@ -11,6 +11,7 @@ interface Summary {
   byMethod: Record<'cash' | 'card', { count: number; total: number }>;
   bySource: Record<'pos' | 'hall', { gross: number; qty: number }>;
   byChannel?: Record<'local' | 'online', { sales: number; gross: number; qty: number }>;
+  refunds?: { count: number; total: number; byMethod: Record<'cash' | 'card', number>; cancelledTickets: number };
 }
 interface VatRateRow { rate: number; qty: number; gross: number; vat: number; net: number; }
 interface FiscalEventRow { event_date: string; show_title: string; issued: number; cancelled: number; gross: number; vat: number; net: number; capacity: number | null; unsold: number | null; }
@@ -99,6 +100,11 @@ export default function Reports() {
               <Card label="Τοπικά (ταμείο)" value={`${sum.byChannel.local.gross.toFixed(2)} €`}
                 sub={`${sum.byChannel.local.qty} εισιτήρια · ${sum.byChannel.local.sales} πωλήσεις`}
                 color="bg-gray-100" />
+            )}
+            {sum.refunds && (
+              <Card label="Ακυρώσεις / Επιστροφές" value={`-${sum.refunds.total.toFixed(2)} €`}
+                sub={`${sum.refunds.cancelledTickets} εισιτήρια · Μετρ. ${sum.refunds.byMethod.cash.toFixed(0)}€ / Κάρτα ${sum.refunds.byMethod.card.toFixed(0)}€`}
+                color="bg-red-100" />
             )}
           </div>
 

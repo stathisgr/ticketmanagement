@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, getToken, type TicketType, type Venue, type FiscalConfig, type PrintTemplate, type Printer, type Station } from '../api';
 
-type Tab = 'business' | 'printers' | 'documents' | 'ticket' | 'types' | 'online';
+type Tab = 'business' | 'printers' | 'documents' | 'ticket' | 'types' | 'online' | 'about';
 
 export default function Settings({ onSaved }: { onSaved?: () => void }) {
   const [tab, setTab] = useState<Tab>('business');
@@ -12,6 +12,7 @@ export default function Settings({ onSaved }: { onSaved?: () => void }) {
     { id: 'ticket', label: 'Φόρμες' },
     { id: 'types', label: 'Τύποι Εισιτηρίων' },
     { id: 'online', label: 'Online Ρυθμίσεις' },
+    { id: 'about', label: 'Σχετικά' },
   ];
   return (
     <div className="p-4 max-w-4xl mx-auto">
@@ -29,6 +30,7 @@ export default function Settings({ onSaved }: { onSaved?: () => void }) {
       {tab === 'ticket' && <TicketFormTab />}
       {tab === 'types' && <TypesTab />}
       {tab === 'online' && <OnlineTab />}
+      {tab === 'about' && <AboutTab />}
       <style>{`.inp{width:100%;border:1px solid #d1d5db;border-radius:.375rem;padding:.45rem .6rem}`}</style>
     </div>
   );
@@ -137,7 +139,7 @@ function OnlineTab() {
           </div>
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-1">
             ⚠️ <b>Source code ΤΑΜΕΙΟΥ</b>: η πηγή Viva για τις πληρωμές στο ταμείο (π.χ. ο κωδικός χώρου Physical Payments). Άφησέ το <b>κενό</b> για την προεπιλεγμένη πηγή (web2/success – δεν κάνει redirect στο online). Αυτό χρησιμοποιεί η εφαρμογή για το ταμείο.<br />
-            <b>Source code ONLINE</b>: μόνο πληροφοριακό εδώ — το online χρησιμοποιεί τη δική του πηγή (με Success URL → booking site) που ορίζεται στο cloud (Supabase secret <code>VIVA_SOURCE_CODE</code>), όχι από αυτό το πεδίο. Έτσι ξεχωρίζουν τα δύο κανάλια πληρωμών.
+            <b>Source code ONLINE</b>: μόνο πληροφοριακό εδώ — το online χρησιμοποιεί τη δική του πηγή πληρωμής (με Success URL → booking site) που ορίζεται στο cloud, όχι από αυτό το πεδίο. Έτσι ξεχωρίζουν τα δύο κανάλια πληρωμών.
           </p>
           <div className="flex gap-2 mt-3">
             <button onClick={testPos} className="bg-blue-600 text-white px-4 py-1.5 rounded">Δοκιμή σύνδεσης</button>
@@ -543,6 +545,11 @@ function DocumentsTab() {
   const setCredit = (k: string, v: any) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), credit: { ...((c.docs ?? {}).credit ?? {}), [k]: v } } }));
   const email = cfg.email || {};
   const setEmail = (k: string, v: any) => setCfg((c: any) => ({ ...c, email: { ...(c.email ?? {}), [k]: v } }));
+  const extra: any[] = (cfg.docs && cfg.docs.extra) || [];
+  const setExtraArr = (arr: any[]) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), extra: arr } }));
+  const addExtra = () => setExtraArr([...extra, { id: Date.now(), label: 'Νέο παραστατικό', invoiceTypeId: 8, series: '', incomeCatId: 2, incomeValId: 8, paymentCashId: 3, paymentCardId: 7, acquirerId: 0, paymentStatus: 2 }]);
+  const updExtra = (i: number, k: string, v: any) => setExtraArr(extra.map((e, j) => (j === i ? { ...e, [k]: v } : e)));
+  const delExtra = (i: number) => setExtraArr(extra.filter((_, j) => j !== i));
 
   async function save() {
     setMsg('');
@@ -649,6 +656,7 @@ function DocumentsTab() {
         <div className="grid grid-cols-2 gap-3">
           <L label="Τύπος παραστατικού (Πιστωτικό)"><Sel list={lookups?.invoiceTypes} value={credit.invoiceTypeId} fallback={22} onChange={(v) => setCredit('invoiceTypeId', v)} /></L>
           <L label="Σειρά"><input className="inp" placeholder="ΠΑΠΥ" value={credit.series ?? 'ΠΑΠΥ'} onChange={(e) => setCredit('series', e.target.value)} /></L>
+          <L label="Αρχικός ΑΑ (προαιρετικό)"><input className="inp" type="number" placeholder="αυτόματο (μέγιστο+1)" value={credit.aaStart ?? ''} onChange={(e) => setCredit('aaStart', e.target.value === '' ? undefined : Number(e.target.value))} /></L>
           <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={credit.incomeCatId} fallback={2} onChange={(v) => setCredit('incomeCatId', v)} /></L>
           <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={credit.incomeValId} fallback={8} onChange={(v) => setCredit('incomeValId', v)} /></L>
         </div>
@@ -660,13 +668,47 @@ function DocumentsTab() {
         <p className="text-xs text-gray-500 mt-1">Αν το Πιστωτικό (11.4) δεν περνά στο demo, η <b>ακύρωση (void)</b> με το guid είναι ο εναλλακτικός μηχανισμός ακύρωσης του παρόχου.</p>
       </div>
 
+      {/* ΚΑΡΤΑ: Πρόσθετα / παραμετρικά παραστατικά (ΤΠΥ, ΠΤΠΥ, κ.λπ.) */}
+      <div className="border rounded-lg p-4 mb-4 bg-white">
+        <div className="flex items-center mb-2">
+          <h4 className="font-semibold">Πρόσθετα παραστατικά</h4>
+          <span className="ml-2 text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">παραμετρικά</span>
+          <button onClick={addExtra} className="ml-auto text-sm bg-slate-700 text-white px-3 py-1 rounded">+ Προσθήκη παραστατικού</button>
+        </div>
+        <p className="text-xs text-gray-500 mb-2">Όρισε επιπλέον τύπους (π.χ. ΤΠΥ, ΠΤΠΥ) με τις παραμέτρους myDATA. Η αυτόματη έκδοση χρησιμοποιεί το <b>ΑΠΥ</b> (πώληση) και το <b>Πιστωτικό</b> (ακύρωση)· τα πρόσθετα αποθηκεύονται για μελλοντική/χειροκίνητη χρήση.</p>
+        {extra.length === 0 && <div className="text-xs text-gray-400">Δεν έχουν οριστεί πρόσθετα παραστατικά.</div>}
+        {extra.map((e: any, i: number) => (
+          <div key={e.id ?? i} className="border rounded-lg p-3 mb-2 bg-slate-50">
+            <div className="flex items-center mb-2 gap-2">
+              <input className="inp flex-1" placeholder="Ονομασία (π.χ. ΤΠΥ)" value={e.label ?? ''} onChange={(ev) => updExtra(i, 'label', ev.target.value)} />
+              <button onClick={() => delExtra(i)} className="text-red-600 text-sm px-2">✕ Διαγραφή</button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <L label="Τύπος παραστατικού"><Sel list={lookups?.invoiceTypes} value={e.invoiceTypeId} fallback={8} onChange={(v) => updExtra(i, 'invoiceTypeId', v)} /></L>
+              <L label="Σειρά"><input className="inp" value={e.series ?? ''} onChange={(ev) => updExtra(i, 'series', ev.target.value)} /></L>
+              <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={e.incomeCatId} fallback={2} onChange={(v) => updExtra(i, 'incomeCatId', v)} /></L>
+              <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={e.incomeValId} fallback={8} onChange={(v) => updExtra(i, 'incomeValId', v)} /></L>
+              <L label="Πληρωμή · Μετρητά (PaymentId)"><input className="inp" type="number" value={e.paymentCashId ?? 3} onChange={(ev) => updExtra(i, 'paymentCashId', Number(ev.target.value))} /></L>
+              <L label="Πληρωμή · Κάρτα (PaymentId)"><input className="inp" type="number" value={e.paymentCardId ?? 7} onChange={(ev) => updExtra(i, 'paymentCardId', Number(ev.target.value))} /></L>
+              <L label="Acquirer κάρτας"><Sel list={lookups?.acquirers} value={e.acquirerId} fallback={0} onChange={(v) => updExtra(i, 'acquirerId', v)} /></L>
+              <L label="Κατάσταση πληρωμής">
+                <select className="inp" value={e.paymentStatus ?? 2} onChange={(ev) => updExtra(i, 'paymentStatus', Number(ev.target.value))}>
+                  <option value={2}>2 — Αποδεκτή</option>
+                  <option value={1}>1 — Κανονική</option>
+                </select>
+              </L>
+            </div>
+          </div>
+        ))}
+      </div>
+
       {/* ΚΑΡΤΑ: Email απόδειξης (online) */}
       <div className="border rounded-lg p-4 mb-4 bg-white">
         <div className="flex items-center mb-2">
-          <h4 className="font-semibold">Email απόδειξης online πωλήσεων (Resend)</h4>
+          <h4 className="font-semibold">Email απόδειξης online πωλήσεων</h4>
           <span className="ml-2 text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded">2ο email με σύνδεσμο ΑΠΥ</span>
         </div>
-        <p className="text-xs text-gray-500 mb-2">Για τις <b>online πωλήσεις</b> (όλες με κάρτα), κατά τον συγχρονισμό εκδίδεται ΑΠΥ στον πάροχο και στέλνεται ένα 2ο email στον πελάτη με <b>σύνδεσμο προς το επίσημο PDF</b> της απόδειξης (ΜΑΡΚ). Συμπλήρωσε το κλειδί Resend και τον αποστολέα.</p>
+        <p className="text-xs text-gray-500 mb-2">Για τις <b>online πωλήσεις</b> (όλες με κάρτα), κατά τον συγχρονισμό εκδίδεται ΑΠΥ στον πάροχο και στέλνεται ένα 2ο email στον πελάτη με <b>σύνδεσμο προς το επίσημο PDF</b> της απόδειξης (ΜΑΡΚ). Συμπλήρωσε το κλειδί και τον αποστολέα.</p>
         <div className="grid grid-cols-2 gap-3">
           <L label="Ενεργό">
             <select className="inp" value={email.enabled ? '1' : '0'} onChange={(e) => setEmail('enabled', e.target.value === '1')}>
@@ -674,7 +716,7 @@ function DocumentsTab() {
             </select>
           </L>
           <L label="Αποστολέας (From)"><input className="inp" placeholder="Όνομα <noreply@domain.gr>" value={email.from ?? ''} onChange={(e) => setEmail('from', e.target.value)} /></L>
-          <L label="Κλειδί Resend (API key)"><input className="inp" type="password" placeholder="re_..." value={email.resendKey ?? ''} onChange={(e) => setEmail('resendKey', e.target.value)} /></L>
+          <L label="Κλειδί (API key)"><input className="inp" type="password" placeholder="••••••••" value={email.resendKey ?? ''} onChange={(e) => setEmail('resendKey', e.target.value)} /></L>
           <L label="Reply-To (προαιρετικό)"><input className="inp" placeholder="info@domain.gr" value={email.replyTo ?? ''} onChange={(e) => setEmail('replyTo', e.target.value)} /></L>
         </div>
         <div className="flex gap-2 mt-3">
@@ -693,6 +735,29 @@ function DocumentsTab() {
 }
 
 /* ---------------- Φόρμα εισιτηρίου (print template) ---------------- */
+function AboutTab() {
+  return (
+    <div className="max-w-2xl">
+      <div className="bg-white border rounded-xl p-6 text-center">
+        <img src="/assets/logo-alpha.webp" alt="Alpha ΠΛΗΡΟΦΟΡΙΚΗ ΑΕ" className="h-20 mx-auto mb-4"
+          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        <h3 className="text-xl font-bold">Alpha ΠΛΗΡΟΦΟΡΙΚΗ ΑΕ</h3>
+        <p className="text-gray-600 mt-1">Λ. Δημοκρατίας 39 — Αλεξανδρούπολη 68132</p>
+        <div className="mt-4 grid gap-1.5 text-sm">
+          <div>Τηλ.: <a className="text-blue-600" href="tel:+302551038444">+30 2551038444</a></div>
+          <div>Support E-Mail: <a className="text-blue-600" href="mailto:support@alphait.gr">support@alphait.gr</a></div>
+          <div>Web Site: <a className="text-blue-600" href="https://axd.gr" target="_blank" rel="noreferrer">https://axd.gr</a></div>
+        </div>
+        <div className="mt-4">
+          <a className="text-blue-600 font-medium" href="https://get.teamviewer.com/alphapc" target="_blank" rel="noreferrer">Ζήτα Online Τεχνική Υποστήριξη</a>
+          <p className="text-[11px] text-gray-400 mt-1">Κατέβασε την εφαρμογή, εκτέλεσέ την και δώσε στο τεχνικό μας τμήμα το ID του συστήματός σου.</p>
+        </div>
+        <p className="text-xs text-gray-400 mt-5">Alpha Ticket Management Simple — © 2026 Alpha ΠΛΗΡΟΦΟΡΙΚΗ ΑΕ. All Rights Reserved.</p>
+      </div>
+    </div>
+  );
+}
+
 const PLACEHOLDERS = ['venueName', 'vatNumber', 'address', 'cityLine', 'phone', 'email', 'title', 'subtitle', 'qty', 'unitPrice', 'lineTotal', 'total', 'vatRate', 'vatAmount', 'netValue', 'serial', 'datetime', 'paymentMethod', 'seat', 'show', 'customerName', 'customerVat', 'docType', 'series', 'aa', 'mark', 'legalNote'];
 const SAMPLE: Record<string, string> = {
   venueName: 'ΜΟΥΣΕΙΟ', vatNumber: '123456789', address: 'Οδός 1', cityLine: '10675 Αθήνα', phone: '2100000000', email: 'info@x.gr',
