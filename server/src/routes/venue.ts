@@ -6,6 +6,7 @@ import { RapidSignProvider, vatCatIdFromRate, type FiscalEnv } from '../fiscal/r
 import { VivaProvider, type VivaEnv } from '../fiscal/viva.js';
 import { sendEmail, receiptEmailHtml } from '../online/email.js';
 import { issuePendingOnline } from '../online/sync.js';
+import { creditForSale } from '../fiscal/issue.js';
 
 export default async function venueRoutes(app: FastifyInstance) {
   app.get('/api/venue', { preHandler: authenticate }, async () => {
@@ -178,6 +179,47 @@ export default async function venueRoutes(app: FastifyInstance) {
       `SELECT id, sale_id, role, status, invoice_type_id, series, mark, qr_url, total, created_at, raw
        FROM fiscal_documents ORDER BY id DESC LIMIT 20`
     ).all();
+  });
+
+  // Αναλυτική λίστα παραστατικών (σελίδα «Παραστατικά») με φίλτρα ημ/νιών + αναζήτηση.
+  app.get('/api/fiscal/documents/list', { preHandler: requireManager }, async (req) => {
+    const { from, to, q } = (req.query ?? {}) as { from?: string; to?: string; q?: string };
+    const where: string[] = ["fd.role = 'sale'"];
+    const params: any[] = [];
+    if (from) { where.push('date(fd.created_at) >= date(?)'); params.push(from); }
+    if (to) { where.push('date(fd.created_at) <= date(?)'); params.push(to); }
+    if (q && q.trim()) {
+      const like = `%${q.trim()}%`;
+      where.push('(c.full_name LIKE ? OR fd.aa LIKE ? OR fd.mark LIKE ? OR CAST(fd.sale_id AS TEXT) LIKE ?)');
+      params.push(like, like, like, like);
+    }
+    return db.prepare(
+      `SELECT fd.id, fd.sale_id, fd.role, fd.invoice_type_id, fd.series, fd.aa, fd.mark, fd.status,
+              fd.net, fd.vat, fd.total, fd.created_at, fd.raw, fd.guid,
+              c.full_name AS customer_name, c.vat_number AS customer_vat,
+              (SELECT si.show_date FROM sale_items si WHERE si.sale_id = fd.sale_id LIMIT 1) AS show_date,
+              (SELECT sh.start_time FROM sale_items si JOIN shows sh ON sh.id = si.show_id WHERE si.sale_id = fd.sale_id LIMIT 1) AS show_time,
+              (SELECT COUNT(*) FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id WHERE si.sale_id = fd.sale_id) AS ticket_count,
+              (SELECT GROUP_CONCAT(t.id) FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id WHERE si.sale_id = fd.sale_id) AS ticket_ids,
+              EXISTS(SELECT 1 FROM fiscal_documents cr WHERE cr.sale_id = fd.sale_id AND cr.role = 'credit' AND cr.status = 'transmitted') AS has_credit
+         FROM fiscal_documents fd
+         JOIN sales s ON s.id = fd.sale_id
+         LEFT JOIN customers c ON c.id = s.customer_id
+        WHERE ${where.join(' AND ')}
+        ORDER BY fd.id DESC LIMIT 500`
+    ).all(...params);
+  });
+
+  // Έκδοση Πιστωτικού (αντιλογιστικό) για επιλεγμένα παραστατικά από τη λίστα.
+  app.post('/api/fiscal/documents/credit', { preHandler: requireManager }, async (req, reply) => {
+    const { saleIds, reason } = (req.body ?? {}) as { saleIds?: number[]; reason?: string };
+    if (!Array.isArray(saleIds) || !saleIds.length) return reply.code(400).send({ error: 'Δεν επιλέχθηκαν παραστατικά.' });
+    const results: { saleId: number; ok: boolean; mark?: string; error?: string }[] = [];
+    for (const sid of saleIds) {
+      try { const r = await creditForSale(Number(sid), reason || 'Έκδοση πιστωτικού'); results.push({ saleId: Number(sid), ok: !!(r && r.ok), mark: r?.mark, error: r?.error }); }
+      catch (e) { results.push({ saleId: Number(sid), ok: false, error: (e as Error).message }); }
+    }
+    return { results, issued: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length };
   });
 
   // Ανάκτηση όλων των λιστών (lookups) του παρόχου — για τη ρύθμιση παραστατικών.

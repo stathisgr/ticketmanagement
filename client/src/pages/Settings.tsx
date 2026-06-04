@@ -526,8 +526,6 @@ function DocumentsTab() {
   const [lookups, setLookups] = useState<any>(null);
   const [lastGuid, setLastGuid] = useState('');
   const [lastMark, setLastMark] = useState('');
-  const [docsList, setDocsList] = useState<any[]>([]);
-  const [rawView, setRawView] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
@@ -535,7 +533,6 @@ function DocumentsTab() {
       let c: any = {}; try { c = fc.config ? JSON.parse(fc.config) : {}; } catch { /* ignore */ }
       setCfg(c);
     }).catch((e) => setMsg((e as Error).message));
-    api.get<any[]>('/api/fiscal/documents').then(setDocsList).catch(() => {});
   }, []);
   if (!cfg) return <div className="text-gray-400">Φόρτωση…</div>;
 
@@ -556,18 +553,6 @@ function DocumentsTab() {
     setMsg('Φόρτωση λιστών παρόχου…');
     try { setLookups(await api.get('/api/fiscal/provider/lookups')); setMsg('✓ Φορτώθηκαν οι λίστες του παρόχου'); }
     catch (e) { setMsg((e as Error).message); }
-  }
-  async function loadDocs() {
-    try { setDocsList(await api.get<any[]>('/api/fiscal/documents')); }
-    catch (e) { setMsg((e as Error).message); }
-  }
-  async function issuePendingOnline() {
-    setMsg('Έκδοση εκκρεμών online ΑΠΥ…');
-    try {
-      const r = await api.post<{ pending: number; issued: number; failed: number }>('/api/fiscal/issue-pending-online', {});
-      setMsg(`✓ Εκκρεμείς: ${r.pending} · Εκδόθηκαν: ${r.issued}${r.failed ? ` · Απέτυχαν: ${r.failed}` : ''}`);
-      loadDocs();
-    } catch (e) { setMsg((e as Error).message); }
   }
   async function testInvoice() {
     setMsg('Δοκιμαστική έκδοση ΑΠΥ…');
@@ -699,44 +684,10 @@ function DocumentsTab() {
 
       <button onClick={save} className="bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση παραστατικών</button>
 
-      {/* ── Διάγνωση: τελευταία διαβιβασθέντα παραστατικά ── */}
-      <div className="mt-6 border-t pt-4">
-        <div className="flex items-center mb-2">
-          <h4 className="font-semibold">Τελευταία παραστατικά (διάγνωση)</h4>
-          <button onClick={issuePendingOnline} className="ml-auto text-sm bg-sky-600 text-white px-3 py-1 rounded">Έκδοση εκκρεμών online ΑΠΥ</button>
-          <button onClick={loadDocs} className="text-sm bg-slate-600 text-white px-3 py-1 rounded">Ανανέωση</button>
-        </div>
-        <p className="text-xs text-gray-500 mb-2">Τι διαβιβάστηκε στον πάροχο ανά πώληση. Αν είναι κενό, η πώληση δεν έφτασε στον πάροχο (έλεγξε ότι η Λειτουργία έκδοσης = «μέσω Παρόχου»). «error» = δες την απάντηση.</p>
-        <table className="w-full border text-sm bg-white">
-          <thead className="bg-gray-100"><tr>
-            <th className="text-left p-2">Πώληση</th><th className="text-left p-2">Τύπος</th><th className="text-left p-2">Κατάσταση</th>
-            <th className="text-left p-2">ΜΑΡΚ</th><th className="text-left p-2">Ημ/νία</th><th></th>
-          </tr></thead>
-          <tbody>
-            {docsList.map((d) => (
-              <tr key={d.id} className="border-t">
-                <td className="p-2">#{d.sale_id}</td>
-                <td className="p-2">{d.role === 'credit' ? 'Πιστωτικό' : 'ΑΠΥ'}</td>
-                <td className="p-2">{d.status === 'transmitted' ? <span className="text-green-700">✓ διαβιβάστηκε</span> : d.status === 'cancelled' ? <span className="text-gray-500">ακυρωμένο</span> : <span className="text-red-600">✗ error</span>}</td>
-                <td className="p-2 font-mono text-xs">{d.mark || '—'}</td>
-                <td className="p-2">{(d.created_at ?? '').replace('T', ' ').slice(0, 16)}</td>
-                <td className="p-2 text-right"><button onClick={() => setRawView(d.raw ?? '(κενό)')} className="text-blue-600 text-xs">απάντηση</button></td>
-              </tr>
-            ))}
-            {docsList.length === 0 && <tr><td colSpan={6} className="p-3 text-gray-400">Καμία διαβίβαση ακόμη.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-
-      {rawView != null && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4" onClick={() => setRawView(null)}>
-          <div className="bg-white rounded-xl p-5 w-[40rem] max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-bold mb-2">Απάντηση παρόχου</h3>
-            <pre className="bg-gray-50 border rounded p-2 text-[11px] whitespace-pre-wrap break-all">{rawView}</pre>
-            <div className="text-right mt-3"><button onClick={() => setRawView(null)} className="px-4 py-2 rounded bg-slate-800 text-white">Κλείσιμο</button></div>
-          </div>
-        </div>
-      )}
+      <p className="text-xs text-gray-500 mt-4 border-t pt-3">
+        Η αναλυτική λίστα παραστατικών (ΜΑΡΚ, κατάσταση, πελάτης, έκδοση πιστωτικού, επανεκτύπωση, αναζήτηση/φίλτρα)
+        βρίσκεται πλέον στην καρτέλα <b>«Παραστατικά»</b> του μενού.
+      </p>
     </div>
   );
 }

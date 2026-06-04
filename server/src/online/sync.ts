@@ -302,6 +302,15 @@ export async function pull(): Promise<{ pulled: number; importedSales: number; p
   const webId = (db.prepare("SELECT id FROM users WHERE username = 'web'").get() as any)?.id ?? null;
 
   for (const pub of pubs) {
+    // (0) ΑΝΑΝΕΩΣΗ στοιχείων θεάματος online (εικόνα/περιγραφή/τίτλος) — ώστε αλλαγές σε ήδη
+    //     δημοσιευμένα θεάματα να περνούν στο cloud με τον κανονικό συγχρονισμό.
+    const meta = db.prepare('SELECT title, poster_url, description FROM shows WHERE id = ?').get(pub.show_id) as any;
+    if (meta) {
+      await rest(c, `shows?id=eq.${pub.cloud_show_id}`, {
+        method: 'PATCH', headers: headers(c, { Prefer: 'return=minimal' }),
+        body: JSON.stringify({ title: meta.title, image_url: meta.poster_url ?? null, description: meta.description ?? null }),
+      });
+    }
     // (α) ΑΝΕΒΑΣΜΑ: θέσεις που πούλησε το ταμείο για αυτή την ημ/νία → sold(box_office) στο cloud.
     const soldLocal = db.prepare(
       'SELECT DISTINCT seat_id FROM tickets WHERE show_id = ? AND show_date = ? AND seat_id IS NOT NULL'

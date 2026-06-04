@@ -11,8 +11,9 @@ import Reports from './pages/Reports';
 import Customers from './pages/Customers';
 import CheckIn from './pages/CheckIn';
 import Online from './pages/Online';
+import Documents from './pages/Documents';
 
-type View = 'pos' | 'seats' | 'checkin' | 'till' | 'reports' | 'customers' | 'halls' | 'shows' | 'online' | 'settings';
+type View = 'pos' | 'seats' | 'checkin' | 'till' | 'reports' | 'customers' | 'halls' | 'shows' | 'online' | 'documents' | 'settings';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -21,6 +22,7 @@ export default function App() {
   const [booting, setBooting] = useState(true);
   const [stations, setStations] = useState<Station[]>([]);
   const [station, setStationState] = useState<string>(getStation());
+  const [providerMode, setProviderMode] = useState(false);
 
   async function loadVenue(role?: string) {
     try {
@@ -29,6 +31,7 @@ export default function App() {
       setView(role === 'checker' ? 'checkin' : v.pos_mode === 'halls' ? 'seats' : 'pos');
     } catch { /* ignore */ }
     try { setStations(await api.get<Station[]>('/api/stations')); } catch { /* ignore */ }
+    try { const f = await api.get<any>('/api/fiscal'); setProviderMode(f?.issue_mode === 'provider'); } catch { /* ignore */ }
   }
   function chooseStation(name: string) { setStation(name); setStationState(name); }
 
@@ -80,6 +83,7 @@ export default function App() {
     { id: 'shows', label: 'Πρόγραμμα', show: showHalls, managerOnly: true },
     { id: 'halls', label: 'Αίθουσες', show: showHalls, managerOnly: true },
     { id: 'online', label: 'Online', show: showHalls, managerOnly: true },
+    { id: 'documents', label: 'Παραστατικά', show: providerMode, managerOnly: true },
     { id: 'settings', label: 'Ρυθμίσεις', show: true, managerOnly: true },
   ];
 
@@ -122,6 +126,7 @@ export default function App() {
         {view === 'shows' && user.role === 'manager' && <Shows />}
         {view === 'halls' && user.role === 'manager' && <Halls />}
         {view === 'online' && user.role === 'manager' && <Online />}
+        {view === 'documents' && user.role === 'manager' && <Documents />}
         {view === 'settings' && user.role === 'manager' && <Settings onSaved={loadVenue} />}
       </main>
     </div>
