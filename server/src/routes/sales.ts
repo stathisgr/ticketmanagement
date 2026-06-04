@@ -456,8 +456,10 @@ export default async function salesRoutes(app: FastifyInstance) {
     const t = db
       .prepare(
         `SELECT t.*, si.title, si.unit_price, si.vat_rate, si.ticket_type_id,
-                s.payment_method, s.user_id
+                s.payment_method, s.user_id, s.total AS sale_total,
+                c.full_name AS customer_name, c.vat_number AS customer_vat
          FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id JOIN sales s ON s.id = si.sale_id
+         LEFT JOIN customers c ON c.id = s.customer_id
          WHERE t.id = ?`
       )
       .get(id) as any;
@@ -509,10 +511,27 @@ export default async function salesRoutes(app: FastifyInstance) {
       paymentMethod: labelPayment(t.payment_method),
       seat: seat?.display_name,
       show: show?.title,
-      legalNote,
+      legalNote: t.fiscal_mark ? '' : legalNote,
       qrPayload: t.qr_payload ?? t.serial,
+      // Στοιχεία παραστατικού αποθηκευμένα στο εισιτήριο → επανεκτύπωση εισιτηρίου+απόδειξης.
+      customerName: t.customer_name ?? '',
+      customerVat: t.customer_vat ?? '',
+      docType: t.fiscal_doc_type ?? '',
+      series: t.fiscal_series ?? '',
+      aa: t.fiscal_aa ?? '',
+      mark: t.fiscal_mark ?? '',
+      markQr: t.fiscal_qr ?? '',
+      total: t.sale_total != null ? Number(t.sale_total) : undefined,
     };
-    const rendered = renderTicket(ctx, printerType, tpl);
+    // Αν το εισιτήριο φέρει ΜΑΡΚ και η φόρμα δεν το περιλαμβάνει, προστίθεται αυτόματα ΜΑΡΚ + QR.
+    let tpl2 = tpl;
+    if (t.fiscal_mark) {
+      const footer = String(tpl.footer ?? '');
+      if (!/\{\{\s*mark\s*\}\}/i.test(footer)) {
+        tpl2 = { ...tpl, footer: footer + '\n[c]ΜΑΡΚ: {{mark}}' + (t.fiscal_qr ? '\n[c][qrmark]' : '') };
+      }
+    }
+    const rendered = renderTicket(ctx, printerType, tpl2);
     db.prepare('UPDATE tickets SET reprinted_count = reprinted_count + 1 WHERE id = ?').run(id);
 
     // Άμεση αποστολή στον δικτυακό εκτυπωτή· αλλιώς ο client τυπώνει από browser.

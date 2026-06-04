@@ -561,6 +561,14 @@ function DocumentsTab() {
     try { setDocsList(await api.get<any[]>('/api/fiscal/documents')); }
     catch (e) { setMsg((e as Error).message); }
   }
+  async function issuePendingOnline() {
+    setMsg('Έκδοση εκκρεμών online ΑΠΥ…');
+    try {
+      const r = await api.post<{ pending: number; issued: number; failed: number }>('/api/fiscal/issue-pending-online', {});
+      setMsg(`✓ Εκκρεμείς: ${r.pending} · Εκδόθηκαν: ${r.issued}${r.failed ? ` · Απέτυχαν: ${r.failed}` : ''}`);
+      loadDocs();
+    } catch (e) { setMsg((e as Error).message); }
+  }
   async function testInvoice() {
     setMsg('Δοκιμαστική έκδοση ΑΠΥ…');
     try {
@@ -695,7 +703,8 @@ function DocumentsTab() {
       <div className="mt-6 border-t pt-4">
         <div className="flex items-center mb-2">
           <h4 className="font-semibold">Τελευταία παραστατικά (διάγνωση)</h4>
-          <button onClick={loadDocs} className="ml-auto text-sm bg-slate-600 text-white px-3 py-1 rounded">Ανανέωση</button>
+          <button onClick={issuePendingOnline} className="ml-auto text-sm bg-sky-600 text-white px-3 py-1 rounded">Έκδοση εκκρεμών online ΑΠΥ</button>
+          <button onClick={loadDocs} className="text-sm bg-slate-600 text-white px-3 py-1 rounded">Ανανέωση</button>
         </div>
         <p className="text-xs text-gray-500 mb-2">Τι διαβιβάστηκε στον πάροχο ανά πώληση. Αν είναι κενό, η πώληση δεν έφτασε στον πάροχο (έλεγξε ότι η Λειτουργία έκδοσης = «μέσω Παρόχου»). «error» = δες την απάντηση.</p>
         <table className="w-full border text-sm bg-white">

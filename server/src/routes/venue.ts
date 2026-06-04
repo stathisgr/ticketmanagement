@@ -5,6 +5,7 @@ import { authenticate, requireManager } from '../auth.js';
 import { RapidSignProvider, vatCatIdFromRate, type FiscalEnv } from '../fiscal/rapidsign.js';
 import { VivaProvider, type VivaEnv } from '../fiscal/viva.js';
 import { sendEmail, receiptEmailHtml } from '../online/email.js';
+import { issuePendingOnline } from '../online/sync.js';
 
 export default async function venueRoutes(app: FastifyInstance) {
   app.get('/api/venue', { preHandler: authenticate }, async () => {
@@ -219,6 +220,11 @@ export default async function venueRoutes(app: FastifyInstance) {
       venueName: venue?.name,
     });
     return sendEmail(to, 'Δοκιμαστικό email απόδειξης', html);
+  });
+
+  // Έκδοση ΑΠΥ για online πωλήσεις που έχουν κατέβει αλλά δεν κόπηκε παραστατικό (επανέκδοση εκκρεμών).
+  app.post('/api/fiscal/issue-pending-online', { preHandler: requireManager }, async () => {
+    return issuePendingOnline();
   });
 
   // Δοκιμαστική έκδοση ΠΙΣΤΩΤΙΚΟΥ (αντιλογιστικό) που αναφέρεται στο ΜΑΡΚ ενός ΑΠΥ.

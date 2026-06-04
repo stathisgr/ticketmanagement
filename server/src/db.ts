@@ -61,6 +61,13 @@ export function migrate(): void {
     // Θέαμα: εικόνα (poster, public URL) + κείμενο περιγραφής (εμφανίζονται online).
     'ALTER TABLE shows ADD COLUMN poster_url TEXT',
     'ALTER TABLE shows ADD COLUMN description TEXT',
+    // Σύνδεση εισιτηρίου ↔ παραστατικού: ΜΑΡΚ/σειρά/ΑΑ/QR/τύπος αποθηκευμένα πάνω στο εισιτήριο
+    // (για επανεκτύπωση εισιτηρίου+απόδειξης, αναφορές & ιχνηλασιμότητα ελέγχου).
+    'ALTER TABLE tickets ADD COLUMN fiscal_mark TEXT',
+    'ALTER TABLE tickets ADD COLUMN fiscal_series TEXT',
+    'ALTER TABLE tickets ADD COLUMN fiscal_aa TEXT',
+    'ALTER TABLE tickets ADD COLUMN fiscal_qr TEXT',
+    'ALTER TABLE tickets ADD COLUMN fiscal_doc_type TEXT',
   ];
   for (const stmt of preMigrations) {
     try { db.exec(stmt); } catch { /* ήδη εφαρμοσμένο ή ο πίνακας δεν υπάρχει */ }

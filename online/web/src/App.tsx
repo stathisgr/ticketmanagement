@@ -171,18 +171,24 @@ export default function App() {
               {selectedDate && dayShows.length === 0 && <p className="muted">Καμία παράσταση στις {dateGr(selectedDate)}.</p>}
               {selectedDate && dayShows.length > 0 && <h3 style={{ marginTop: 0 }}>{dateGr(selectedDate)}</h3>}
               {dayShows.map((s) => (
-                <div key={s.id} className="card" onClick={() => !isClosed(s) && openShow(s)}>
-                  <div className="row">
-                    <div>
-                      <h3>{s.title}</h3>
-                      <div className="muted">{s.subtitle}</div>
-                      <div className="muted">{s.venue_name} · {s.start_time}{s.end_time ? `–${s.end_time}` : ""}</div>
+                <div key={s.id} className={`showcard${isClosed(s) ? " is-closed" : ""}`} onClick={() => !isClosed(s) && openShow(s)}>
+                  {s.image_url && (
+                    <div className="showcard-img">
+                      <img src={s.image_url} alt={s.title} loading="lazy" />
+                      <span className="showcard-time">{s.start_time}</span>
                     </div>
-                    {isClosed(s)
-                      ? <span className="closed">Έκλεισαν οι online πωλήσεις</span>
-                      : <span className="btn alt">Κράτηση →</span>}
+                  )}
+                  <div className="showcard-body">
+                    <h3>{s.title}</h3>
+                    {s.subtitle && <div className="muted">{s.subtitle}</div>}
+                    {s.description && <p className="showcard-desc">{s.description}</p>}
+                    <div className="showcard-foot">
+                      <span className="muted">{s.venue_name} · {s.start_time}{s.end_time ? `–${s.end_time}` : ""}</span>
+                      {isClosed(s)
+                        ? <span className="closed">Έκλεισαν οι online πωλήσεις</span>
+                        : <span className="btn">Κράτηση →</span>}
+                    </div>
                   </div>
-                  {s.image_url && <img className="showthumb" src={s.image_url} alt={s.title} />}
                 </div>
               ))}
             </div>

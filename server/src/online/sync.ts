@@ -1,8 +1,53 @@
 // Συγχρονισμός τοπικής βάσης ↔ Supabase (cloud) για online κρατήσεις.
 // Χρησιμοποιεί το service_role key (μόνο server-side) μέσω PostgREST upsert.
 import { db } from '../db.js';
-import { issueForSale } from '../fiscal/issue.js';
+import { issueForSale, type FiscalOutcome } from '../fiscal/issue.js';
 import { sendEmail, emailCfg, receiptEmailHtml } from './email.js';
+
+/** Έκδοση ΑΠΥ για μια πώληση + (αν νέα & υπάρχει email) αποστολή 2ου email με σύνδεσμο PDF παρόχου. */
+export async function issueAndEmailSale(saleId: number): Promise<FiscalOutcome | null> {
+  const fr = await issueForSale(saleId);
+  if (!fr || !fr.ok) return fr;
+  if (fr.isNew && emailCfg()) {
+    const sale = db.prepare('SELECT s.total, c.email, c.full_name FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE s.id = ?').get(saleId) as any;
+    if (sale?.email) {
+      const head = db.prepare('SELECT sh.title AS show_title, si.show_date FROM sale_items si LEFT JOIN shows sh ON sh.id = si.show_id WHERE si.sale_id = ? LIMIT 1').get(saleId) as any;
+      const seatRows = db.prepare(
+        `SELECT COALESCE(se.display_name, se.row_label || se.col_label) AS lbl
+           FROM sale_items si LEFT JOIN seats se ON se.id = si.seat_id WHERE si.sale_id = ? AND si.seat_id IS NOT NULL`
+      ).all(saleId) as any[];
+      const venue = db.prepare('SELECT name FROM venue WHERE id = 1').get() as any;
+      try {
+        await sendEmail(
+          sale.email,
+          `Απόδειξη Παροχής Υπηρεσιών — ${head?.show_title ?? 'Κράτηση'}`,
+          receiptEmailHtml({
+            name: sale.full_name, showTitle: head?.show_title, showDate: head?.show_date,
+            seats: seatRows.map((r) => r.lbl).filter(Boolean).join(', '),
+            total: Number(sale.total) || 0, mark: fr.mark, link: fr.providerUrl ?? fr.qrUrl, venueName: venue?.name,
+          }),
+        );
+      } catch { /* η αποτυχία email δεν επηρεάζει την έκδοση */ }
+    }
+  }
+  return fr;
+}
+
+/** Έκδοση ΑΠΥ για όλες τις online πωλήσεις που ΔΕΝ έχουν διαβιβασμένο παραστατικό (επανέκδοση εκκρεμών). */
+export async function issuePendingOnline(): Promise<{ pending: number; issued: number; failed: number }> {
+  const rows = db.prepare(
+    `SELECT s.id FROM sales s
+      WHERE s.source = 'online'
+        AND NOT EXISTS (SELECT 1 FROM fiscal_documents fd WHERE fd.sale_id = s.id AND fd.role = 'sale' AND fd.status = 'transmitted')
+      ORDER BY s.id`
+  ).all() as any[];
+  let issued = 0; let failed = 0;
+  for (const r of rows) {
+    try { const fr = await issueAndEmailSale(r.id); if (fr?.ok) issued++; else failed++; }
+    catch { failed++; }
+  }
+  return { pending: rows.length, issued, failed };
+}
 
 interface OnlineCfg { supabase_url: string; service_key: string; enabled: number; sync_minutes_before: number; }
 
@@ -239,34 +284,9 @@ async function importShowOrders(c: OnlineCfg, pub: any, webId: number | null): P
 
   // ── Έκδοση ΑΠΥ στον πάροχο για τις ΝΕΕΣ online πωλήσεις + 2ο email με σύνδεσμο PDF ──
   // (κάρτα → 2-step → ΜΑΡΚ). Αν δεν είναι ενεργή λειτουργία παρόχου → issueForSale=null (παράλειψη).
-  if (created.length) {
-    const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
-    const show = db.prepare('SELECT title FROM shows WHERE id = ?').get(pub.show_id) as any;
-    const canEmail = !!emailCfg();
-    for (const s of created) {
-      try {
-        const fr = await issueForSale(s.saleId);
-        if (!fr || !fr.ok) continue;
-        if (fr.isNew && canEmail && s.email) {
-          const sale = db.prepare('SELECT total FROM sales WHERE id = ?').get(s.saleId) as any;
-          const seatRows = db.prepare(
-            `SELECT COALESCE(se.display_name, se.row_label || se.col_label) AS lbl
-               FROM sale_items si LEFT JOIN seats se ON se.id = si.seat_id
-              WHERE si.sale_id = ? AND si.seat_id IS NOT NULL`
-          ).all(s.saleId) as any[];
-          const seats = seatRows.map((r) => r.lbl).filter(Boolean).join(', ');
-          await sendEmail(
-            s.email,
-            `Απόδειξη Παροχής Υπηρεσιών — ${show?.title ?? 'Κράτηση'}`,
-            receiptEmailHtml({
-              name: s.name, showTitle: show?.title, showDate: pub.show_date, seats,
-              total: Number(sale?.total) || 0, mark: fr.mark, link: fr.providerUrl ?? fr.qrUrl,
-              venueName: venue?.name,
-            }),
-          );
-        }
-      } catch { /* η αποτυχία έκδοσης/email δεν μπλοκάρει τον συγχρονισμό */ }
-    }
+  for (const s of created) {
+    try { await issueAndEmailSale(s.saleId); }
+    catch { /* η αποτυχία έκδοσης/email δεν μπλοκάρει τον συγχρονισμό */ }
   }
   return imported;
 }

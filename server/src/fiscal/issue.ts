@@ -126,7 +126,15 @@ export async function issueForSale(saleId: number, opts?: { vivaTxId?: string })
     ins.run(saleId, Number(apy.invoiceTypeId) || 20, apy.series || 'ΑΠY', String(aaNum),
       res.mark, res.uid ?? null, res.authenticationCode ?? null, res.qrCodeMyData ?? null, res.qrCode ?? null, res.guid ?? null,
       'transmitted', totalNet, totalVat, totalGross, JSON.stringify(res.raw ?? '').slice(0, 4000));
-    return { ok: true, mark: res.mark, qrUrl: res.qrCodeMyData, providerUrl: res.qrCode, series: apy.series || cfg.series || 'ΑΠY', aa: String(aaNum), docType, isNew: true };
+    // Αποτύπωση παραστατικού πάνω στα εισιτήρια της πώλησης (για επανεκτύπωση/ιχνηλασιμότητα).
+    const seriesVal = apy.series || cfg.series || 'ΑΠY';
+    try {
+      db.prepare(
+        `UPDATE tickets SET fiscal_mark = ?, fiscal_series = ?, fiscal_aa = ?, fiscal_qr = ?, fiscal_doc_type = ?
+          WHERE sale_item_id IN (SELECT id FROM sale_items WHERE sale_id = ?)`
+      ).run(res.mark ?? null, seriesVal, String(aaNum), res.qrCodeMyData ?? null, docType, saleId);
+    } catch { /* οι στήλες ίσως δεν υπάρχουν σε πολύ παλιά βάση */ }
+    return { ok: true, mark: res.mark, qrUrl: res.qrCodeMyData, providerUrl: res.qrCode, series: seriesVal, aa: String(aaNum), docType, isNew: true };
   }
   // Αποτυχία ή κενό ΜΑΡΚ → αποθήκευση ΟΛΟΥ του raw (request + response) για διάγνωση.
   const rawDump = JSON.stringify(res.raw ?? res.error ?? '').slice(0, 4000);
