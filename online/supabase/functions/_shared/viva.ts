@@ -88,18 +88,29 @@ export class Viva {
 
   // Κατάσταση order — legacy endpoint /api/orders/{code}, Basic merchantId:apiKey.
   // Επιστρέφει "StateId" (κεφαλαίο)· 3 = Paid.
-  async orderState(orderCode: string): Promise<{ stateId: number | null; paid: boolean }> {
+  // RETRY: αμέσως μετά την πληρωμή το Smart-Checkout order αργεί να εμφανιστεί στο legacy API
+  // (404 «OrderCodeNotFound») — ξαναδοκιμάζουμε με μικρή αναμονή για να μη χαθεί η επιβεβαίωση.
+  async orderState(orderCode: string, attempts = 5): Promise<{ stateId: number | null; paid: boolean }> {
     const host = this.cfg.env === "prod"
       ? "https://www.vivapayments.com" : "https://demo.vivapayments.com";
     const basic = btoa(`${this.cfg.merchantId}:${this.cfg.apiKey}`);
-    const res = await fetch(`${host}/api/orders/${orderCode}`, {
-      headers: { Authorization: `Basic ${basic}` },
-    });
-    if (!res.ok) throw new Error(`Viva orderState ${res.status}: ${await res.text()}`);
-    const j = await res.json();
-    const stateId = (typeof j.StateId === "number" ? j.StateId
-      : typeof j.stateId === "number" ? j.stateId : null);
-    return { stateId, paid: stateId === VIVA_PAID_STATE };
+    let lastErr = "";
+    for (let i = 0; i < attempts; i++) {
+      const res = await fetch(`${host}/api/orders/${orderCode}`, {
+        headers: { Authorization: `Basic ${basic}` },
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const stateId = (typeof j.StateId === "number" ? j.StateId
+          : typeof j.stateId === "number" ? j.stateId : null);
+        return { stateId, paid: stateId === VIVA_PAID_STATE };
+      }
+      lastErr = `${res.status}: ${await res.text()}`;
+      // 404 (καθυστέρηση διάδοσης) ή 5xx → ξαναδοκίμασε· auth/άλλα 4xx → σταμάτα.
+      if (res.status !== 404 && res.status < 500) break;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500));
+    }
+    throw new Error(`Viva orderState ${lastErr}`);
   }
 
   // Webhook verification key (Viva GET challenge)
