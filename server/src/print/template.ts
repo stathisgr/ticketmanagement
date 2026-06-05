@@ -21,6 +21,8 @@ export interface TicketContext {
   paymentMethod: string;
   seat?: string;     // Φάση 2
   show?: string;     // Φάση 2
+  showDate?: string; // ημ/νία θεάματος (DD/MM/YYYY)
+  showTime?: string; // ώρα θεάματος (π.χ. 21:00)
   qrPayload?: string; // περιεχόμενο QR (default: serial)
   legalNote?: string; // π.χ. «Δεν αποτελεί φορολογικό παραστατικό» όταν την απόδειξη κόβει η ταμειακή
   mark?: string;      // ΜΑΡΚ παρόχου (myDATA) — όταν το εισιτήριο είναι το φορολογικό παραστατικό
@@ -32,6 +34,35 @@ export interface TicketContext {
   series?: string;       // Σειρά παραστατικού (π.χ. ΑΠΥ)
   aa?: string;           // Αύξων αριθμός παραστατικού
   total?: number;        // Συνολικό ποσό της πώλησης (όλες οι γραμμές)
+}
+
+/** Στοιχεία απόδειξης λιανικής (προϊόντα) — τυποποιημένη φόρμα, όλα τα είδη μαζί. */
+export interface RetailItem { name: string; qty: number; unitPrice: number; lineTotal: number; vatRate: number; }
+export interface RetailReceipt {
+  venueName: string; vatNumber?: string; address?: string; cityLine?: string; phone?: string; taxOffice?: string;
+  docType?: string; series?: string; aa?: string; datetime?: string;
+  customerName?: string; customerVat?: string;
+  items: RetailItem[];
+  total: number; paymentMethod?: string;
+  mark?: string; markQr?: string; legalNote?: string;
+  codePage?: string; escposPageId?: number;
+}
+
+/** Προεπιλεγμένα header/footer απόδειξης λιανικής (επεξεργάσιμα). Τα είδη + ΦΠΑ + σύνολα είναι αυτόματα. */
+export const DEFAULT_RETAIL_HEADER = '{{venueName}}\n{{address}}\n{{cityLine}}\nΑΦΜ: {{vatNumber}}  {{taxOffice}}\nΤΗΛ: {{phone}}';
+export const DEFAULT_RETAIL_FOOTER = 'Ευχαριστούμε!';
+
+/** Αντικατάσταση placeholders {{...}} για την απόδειξη λιανικής (header/footer). */
+export function fillRetail(tpl: string, rc: RetailReceipt): string {
+  const eur = (n?: number) => (Number(n) || 0).toFixed(2);
+  const map: Record<string, string> = {
+    venueName: rc.venueName ?? '', vatNumber: rc.vatNumber ?? '', taxOffice: rc.taxOffice ?? '',
+    address: rc.address ?? '', cityLine: rc.cityLine ?? '', phone: rc.phone ?? '',
+    docType: rc.docType ?? '', series: rc.series ?? '', aa: rc.aa ?? '', datetime: rc.datetime ?? '',
+    customerName: rc.customerName ?? '', customerVat: rc.customerVat ?? '',
+    total: eur(rc.total), paymentMethod: rc.paymentMethod ?? '', mark: rc.mark ?? '',
+  };
+  return (tpl ?? '').replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => map[k] ?? '');
 }
 
 /** Υπολογισμός καθαρής αξίας & ΦΠΑ από τιμή ΜΕ ΦΠΑ (VAT-inclusive). */
@@ -62,6 +93,9 @@ export function fillTemplate(tpl: string, ctx: TicketContext): string {
     paymentMethod: ctx.paymentMethod,
     seat: ctx.seat ?? '',
     show: ctx.show ?? '',
+    showDate: ctx.showDate ?? '',
+    showTime: ctx.showTime ?? '',
+    showDateTime: [ctx.showDate, ctx.showTime].filter(Boolean).join(' '),
     legalNote: ctx.legalNote ?? '',
     mark: ctx.mark ?? '',
     customerName: ctx.customerName ?? '',

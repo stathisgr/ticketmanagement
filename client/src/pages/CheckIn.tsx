@@ -41,14 +41,14 @@ export default function CheckIn() {
     setBusy(true);
     try { const r = await api.post<{ pulled: number; importedSales: number }>('/api/online/pull', {}); setRes({ status: 'ok', title: `Συγχρονισμός Cloud: ${r.importedSales} online πωλήσεις, ${r.pulled} θέσεις` } as Result); refresh(); }
     catch (e) { setRes({ status: 'not_found', code: (e as Error).message } as Result); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setTimeout(() => inputRef.current?.focus(), 30); }
   }
 
   return (
     <div className="p-4 max-w-3xl mx-auto">
       <div className="flex items-center gap-3 mb-3">
         <h2 className="text-xl font-bold">Έλεγχος εισόδου</h2>
-        <button onClick={syncCloud} disabled={busy}
+        <button type="button" onClick={syncCloud} onMouseDown={(e) => e.preventDefault()} disabled={busy}
           className="ml-auto text-sm bg-emerald-700 text-white rounded px-3 py-1 disabled:opacity-40" title="Διάβασε εισιτήρια από το Cloud (online πωλήσεις)">
           ⟳ Συγχρονισμός Cloud
         </button>

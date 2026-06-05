@@ -17,9 +17,10 @@ export default async function checkinRoutes(app: FastifyInstance) {
                 sh.title AS show_title, sh.start_time AS show_start, sh.end_time AS show_end
          FROM tickets t
          JOIN sale_items si ON si.id = t.sale_item_id
+         LEFT JOIN ticket_types tt ON tt.id = si.ticket_type_id
          LEFT JOIN seats seat ON seat.id = t.seat_id
          LEFT JOIN shows sh ON sh.id = t.show_id
-         WHERE t.qr_payload = ? OR t.serial = ?`
+         WHERE (t.qr_payload = ? OR t.serial = ?) AND COALESCE(tt.kind, 0) <> 1`
       )
       .get(c, serial) as any;
     return row ?? null;
@@ -74,7 +75,8 @@ export default async function checkinRoutes(app: FastifyInstance) {
     const row = db.prepare(
       `SELECT COUNT(*) AS issued, SUM(CASE WHEN t.checked_in_at IS NOT NULL THEN 1 ELSE 0 END) AS entered
        FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id JOIN sales s ON s.id = si.sale_id
-       WHERE date(s.datetime) = ? AND t.cancelled_at IS NULL`
+       LEFT JOIN ticket_types tt ON tt.id = si.ticket_type_id
+       WHERE date(s.datetime) = ? AND t.cancelled_at IS NULL AND COALESCE(tt.kind, 0) <> 1`
     ).get(d) as any;
     return { scope: 'day', date: d, issued: row.issued ?? 0, entered: row.entered ?? 0 };
   });
@@ -85,9 +87,10 @@ export default async function checkinRoutes(app: FastifyInstance) {
       `SELECT t.id, t.serial, t.checked_in_at, si.title, seat.display_name AS seat, sh.title AS show_title
        FROM tickets t
        JOIN sale_items si ON si.id = t.sale_item_id
+       LEFT JOIN ticket_types tt ON tt.id = si.ticket_type_id
        LEFT JOIN seats seat ON seat.id = t.seat_id
        LEFT JOIN shows sh ON sh.id = t.show_id
-       WHERE t.checked_in_at IS NOT NULL
+       WHERE t.checked_in_at IS NOT NULL AND COALESCE(tt.kind, 0) <> 1
        ORDER BY t.checked_in_at DESC LIMIT 30`
     ).all();
   });

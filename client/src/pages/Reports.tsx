@@ -32,29 +32,39 @@ export default function Reports() {
   const [byShow, setByShow] = useState<ShowRow[]>([]);
   const [byHall, setByHall] = useState<HallRow[]>([]);
   const [byType, setByType] = useState<TypeRow[]>([]);
+  const [byTypeProd, setByTypeProd] = useState<TypeRow[]>([]);
   const [fiscal, setFiscal] = useState<Fiscal | null>(null);
+  const [fiscalProd, setFiscalProd] = useState<Fiscal | null>(null);
   const [tab, setTab] = useState<'general' | 'fiscal'>('general');
+  const [kind, setKind] = useState<'all' | 'service' | 'product'>('service');
   const [error, setError] = useState('');
 
   async function load() {
     setError('');
-    const qs = `from=${from}&to=${to}`;
+    const qsBase = `from=${from}&to=${to}`;
+    const qs = `${qsBase}&kind=${kind}`;
     try {
       if (tab === 'fiscal') {
-        setFiscal(await api.get<Fiscal>(`/api/reports/fiscal?${qs}`));
+        // Υπηρεσίες (κύριος πίνακας ακολουθεί το φίλτρο) + Προϊόντα (πάντα ξεχωριστά από κάτω)
+        const [f, fp] = await Promise.all([
+          api.get<Fiscal>(`/api/reports/fiscal?${qs}`),
+          api.get<Fiscal>(`/api/reports/fiscal?${qsBase}&kind=product`),
+        ]);
+        setFiscal(f); setFiscalProd(fp);
         return;
       }
-      const [s, d, sh, h, t] = await Promise.all([
+      const [s, d, sh, h, t, tp] = await Promise.all([
         api.get<Summary>(`/api/reports/summary?${qs}`),
         api.get<DayRow[]>(`/api/reports/by-day?${qs}`),
         api.get<ShowRow[]>(`/api/reports/by-show?${qs}`),
         api.get<HallRow[]>(`/api/reports/by-hall?${qs}`),
         api.get<TypeRow[]>(`/api/reports/by-type?${qs}`),
+        api.get<TypeRow[]>(`/api/reports/by-type?${qsBase}&kind=product`),
       ]);
-      setSum(s); setDays(d); setByShow(sh); setByHall(h); setByType(t);
+      setSum(s); setDays(d); setByShow(sh); setByHall(h); setByType(t); setByTypeProd(tp);
     } catch (e) { setError((e as Error).message); }
   }
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [tab, kind]);
 
   function csv(name: string, header: string[], rows: (string | number)[][]) {
     const lines = [header.join(';'), ...rows.map((r) => r.join(';'))];
@@ -73,6 +83,12 @@ export default function Reports() {
         <label className="text-sm">Από<span className="block"><DateField value={from} onChange={setFrom} /></span></label>
         <label className="text-sm">Έως<span className="block"><DateField value={to} onChange={setTo} /></span></label>
         <button onClick={load} className="bg-slate-800 text-white px-4 py-1.5 rounded">Εμφάνιση</button>
+        <div className="flex items-center gap-1 text-sm ml-auto">
+          {([['service', 'Υπηρεσίες'], ['product', 'Προϊόντα'], ['all', 'Όλα']] as const).map(([v, lbl]) => (
+            <button key={v} onClick={() => setKind(v)}
+              className={`px-3 py-1.5 rounded border ${kind === v ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-600'}`}>{lbl}</button>
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-1 border-b mb-4">
@@ -139,9 +155,14 @@ export default function Reports() {
             rows={byHall.map((r) => [r.hall_name, String(r.qty), `${r.gross.toFixed(2)} €`])}
           />
           <ReportTable
-            title="Ανά τύπο εισιτηρίου" onCsv={() => csv('ana_typo', ['Εισιτήριο', 'Τεμάχια', 'Τζίρος'], byType.map((r) => [r.title, r.qty, r.gross.toFixed(2)]))}
+            title="Ανά τύπο εισιτηρίου (Υπηρεσίες)" onCsv={() => csv('ana_typo_ypiresies', ['Εισιτήριο', 'Τεμάχια', 'Τζίρος'], byType.map((r) => [r.title, r.qty, r.gross.toFixed(2)]))}
             head={['Εισιτήριο', 'Τεμάχια', 'Τζίρος']}
             rows={byType.map((r) => [r.title, String(r.qty), `${r.gross.toFixed(2)} €`])}
+          />
+          <ReportTable
+            title="Ανά είδος προϊόντος (Προϊόντα)" onCsv={() => csv('ana_eidos_proiontos', ['Προϊόν', 'Τεμάχια', 'Τζίρος'], byTypeProd.map((r) => [r.title, r.qty, r.gross.toFixed(2)]))}
+            head={['Προϊόν', 'Τεμάχια', 'Τζίρος']}
+            rows={byTypeProd.map((r) => [r.title, String(r.qty), `${r.gross.toFixed(2)} €`])}
           />
         </>
       )}
@@ -168,15 +189,24 @@ export default function Reports() {
           />
 
           <ReportTable
-            title="Ανά εκδήλωση / ημερομηνία"
-            onCsv={() => csv('ana_ekdilosi', ['Ημ. εκδήλωσης', 'Εκδήλωση', 'Εκδοθέντα', 'Ακυρωθέντα', 'Χωρητικότητα', 'Αδιάθετα', 'Καθαρή αξία', 'ΦΠΑ', 'Σύνολο'],
+            title="Ανά εκδήλωση / ημερομηνία (Υπηρεσίες)"
+            onCsv={() => csv('ana_ekdilosi_ypiresies', ['Ημ. εκδήλωσης', 'Εκδήλωση', 'Εκδοθέντα', 'Ακυρωθέντα', 'Χωρητικότητα', 'Αδιάθετα', 'Καθαρή αξία', 'ΦΠΑ', 'Σύνολο'],
               fiscal.byEvent.map((r) => [r.event_date, r.show_title, r.issued, r.cancelled, r.capacity ?? '', r.unsold ?? '', r.net.toFixed(2), r.vat.toFixed(2), r.gross.toFixed(2)]))}
             head={['Ημ. εκδήλωσης', 'Εκδήλωση', 'Εκδοθ.', 'Ακυρ.', 'Χωρητ.', 'Αδιάθ.', 'ΦΠΑ', 'Σύνολο']}
             rows={fiscal.byEvent.map((r) => [dmy(r.event_date), r.show_title, String(r.issued), String(r.cancelled),
               r.capacity != null ? String(r.capacity) : '—', r.unsold != null ? String(r.unsold) : '—',
               `${r.vat.toFixed(2)} €`, `${r.gross.toFixed(2)} €`])}
           />
-          {fiscal.byEvent.length === 0 && <div className="text-gray-400 text-sm">Καμία εγγραφή στο διάστημα.</div>}
+          {fiscalProd && (
+            <ReportTable
+              title="Ανά ημερομηνία — Προϊόντα"
+              onCsv={() => csv('ana_imerominia_proionta', ['Ημ/νία', 'Περιγραφή', 'Εκδοθέντα', 'Ακυρωθέντα', 'Καθαρή αξία', 'ΦΠΑ', 'Σύνολο'],
+                fiscalProd.byEvent.map((r) => [r.event_date, r.show_title, r.issued, r.cancelled, r.net.toFixed(2), r.vat.toFixed(2), r.gross.toFixed(2)]))}
+              head={['Ημ/νία', 'Περιγραφή', 'Εκδοθ.', 'Ακυρ.', 'ΦΠΑ', 'Σύνολο']}
+              rows={fiscalProd.byEvent.map((r) => [dmy(r.event_date), r.show_title, String(r.issued), String(r.cancelled),
+                `${r.vat.toFixed(2)} €`, `${r.gross.toFixed(2)} €`])}
+            />
+          )}
         </>
       )}
     </div>

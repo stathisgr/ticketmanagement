@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { db, tx, localDate } from '../db.js';
+import { db, tx, localDate, kindClause } from '../db.js';
 import { authenticate, requireManager, type JwtUser } from '../auth.js';
-import { renderTicket, type PrinterType } from '../print/index.js';
+import { renderTicket, renderRetail, type PrinterType } from '../print/index.js';
 import type { TicketContext } from '../print/template.js';
 import { exportAsciiReceipt } from '../fiscal/ascii.js';
 import { sendToNetworkPrinter, DRAWER_KICK } from '../print/dispatch.js';
@@ -172,7 +172,7 @@ export default async function salesRoutes(app: FastifyInstance) {
               `INSERT INTO tickets (sale_item_id, serial, qr_payload, show_id, show_date, printed_at)
                VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))`
             ).run(saleItemId, serial, qrPayload, stt.show_id, showDate);
-            renderCtx.push(mkCtx({ title: stt.title, subtitle: show?.title, show: show?.title, unitPrice: stt.price, lineTotal: stt.price, vatRate: stt.vat_rate, serial, qrPayload }));
+            renderCtx.push(mkCtx({ title: stt.title, subtitle: show?.title, show: show?.title, showDate: dmyShow(showDate), showTime: show?.start_time ?? '', unitPrice: stt.price, lineTotal: stt.price, vatRate: stt.vat_rate, serial, qrPayload }));
           }
           continue;
         }
@@ -216,6 +216,8 @@ export default async function salesRoutes(app: FastifyInstance) {
             title: stt.title,
             subtitle: show?.title,
             show: show?.title,
+            showDate: dmyShow(showDate),
+            showTime: show?.start_time ?? '',
             seat: seat.display_name,
             unitPrice: stt.price,
             lineTotal: stt.price,
@@ -356,13 +358,24 @@ export default async function salesRoutes(app: FastifyInstance) {
         tplForRender = { ...tpl, footer: footer + '\n[c]ΜΑΡΚ: {{mark}}' + (fiscalResult.qrUrl ? '\n[c][qrmark]' : '') };
       }
     }
-    const tickets = renderCtx.map((c) =>
-      renderTicket({
-        ...c, mark: fiscalResult?.mark, markQr: fiscalResult?.qrUrl,
-        series: fiscalResult?.series, aa: fiscalResult?.aa, docType: fiscalResult?.docType,
-        total: result.total,
-        legalNote: issueMode === 'provider' ? '' : c.legalNote,
-      }, printerType, tplForRender));
+    // Πώληση εμπορικών προϊόντων → ΜΙΑ τυποποιημένη ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ (όλα τα είδη μαζί + ΦΠΑ ανά
+    // συντελεστή), όχι ξεχωριστά εισιτήρια. Υπηρεσίες/εισιτήρια → ως έχει (ένα εισιτήριο ανά είδος).
+    const isProductSale = !!db.prepare(
+      'SELECT 1 FROM sale_items si JOIN ticket_types tt ON tt.id = si.ticket_type_id WHERE si.sale_id = ? AND tt.kind = 1 LIMIT 1'
+    ).get(result.saleId);
+    let tickets;
+    if (isProductSale) {
+      // Μία ενοποιημένη Απόδειξη Λιανικής (επεξεργάσιμη φόρμα retail· είδη+ΦΠΑ+σύνολα αυτόματα).
+      tickets = [renderRetail(buildRetailReceipt(result.saleId), printerType, retailForm())];
+    } else {
+      tickets = renderCtx.map((c) =>
+        renderTicket({
+          ...c, mark: fiscalResult?.mark, markQr: fiscalResult?.qrUrl,
+          series: fiscalResult?.series, aa: fiscalResult?.aa, docType: fiscalResult?.docType,
+          total: result.total,
+          legalNote: issueMode === 'provider' ? '' : c.legalNote,
+        }, printerType, tplForRender));
+    }
     (result as any).tickets = tickets;
 
     // Άμεση αποστολή στον εκτυπωτή του σταθμού (δικτυακός) → χωρίς browser print.
@@ -424,7 +437,7 @@ export default async function salesRoutes(app: FastifyInstance) {
   // Λίστα εκδοθέντων εισιτηρίων. Ταμίας: μόνο σήμερα & δικά του. Manager: εύρος from..to & όλα.
   app.get('/api/tickets', { preHandler: authenticate }, async (req) => {
     const user = req.user as JwtUser;
-    const { from, to } = req.query as { from?: string; to?: string };
+    const { from, to, kind } = req.query as { from?: string; to?: string; kind?: string };
     const todayStr = localDate();
     const fromDate = user.role === 'manager' ? (from ?? todayStr) : todayStr;
     const toDate = user.role === 'manager' ? (to ?? fromDate) : todayStr;
@@ -443,7 +456,7 @@ export default async function salesRoutes(app: FastifyInstance) {
        LEFT JOIN seats seat ON seat.id = t.seat_id
        LEFT JOIN shows sh ON sh.id = t.show_id
        LEFT JOIN users u ON u.id = s.user_id
-       WHERE date(s.datetime) BETWEEN ? AND ?`;
+       WHERE date(s.datetime) BETWEEN ? AND ?` + kindClause(kind, 's');
     if (user.role !== 'manager') { sql += ' AND s.user_id = ?'; params.push(user.id); }
     sql += ' ORDER BY t.id DESC LIMIT 1000';
     return db.prepare(sql).all(...params);
@@ -511,6 +524,8 @@ export default async function salesRoutes(app: FastifyInstance) {
       paymentMethod: labelPayment(t.payment_method),
       seat: seat?.display_name,
       show: show?.title,
+      showDate: dmyShow(t.show_date),
+      showTime: show?.start_time ?? '',
       legalNote: t.fiscal_mark ? '' : legalNote,
       qrPayload: t.qr_payload ?? t.serial,
       // Στοιχεία παραστατικού αποθηκευμένα στο εισιτήριο → επανεκτύπωση εισιτηρίου+απόδειξης.
@@ -531,7 +546,11 @@ export default async function salesRoutes(app: FastifyInstance) {
         tpl2 = { ...tpl, footer: footer + '\n[c]ΜΑΡΚ: {{mark}}' + (t.fiscal_qr ? '\n[c][qrmark]' : '') };
       }
     }
-    const rendered = renderTicket(ctx, printerType, tpl2);
+    // Αν η πώληση είναι εμπορικά προϊόντα → επανεκτύπωση της ΑΠΟΔΕΙΞΗΣ ΛΙΑΝΙΚΗΣ (ενοποιημένη), όχι εισιτηρίου.
+    const saleIdR = (db.prepare('SELECT sale_id FROM sale_items WHERE id = ?').get(t.sale_item_id) as any)?.sale_id;
+    const rendered = (saleIdR && saleIsProduct(saleIdR))
+      ? renderRetail(buildRetailReceipt(saleIdR), printerType, retailForm())
+      : renderTicket(ctx, printerType, tpl2);
     db.prepare('UPDATE tickets SET reprinted_count = reprinted_count + 1 WHERE id = ?').run(id);
 
     // Άμεση αποστολή στον δικτυακό εκτυπωτή· αλλιώς ο client τυπώνει από browser.
@@ -549,6 +568,17 @@ export default async function salesRoutes(app: FastifyInstance) {
       } catch (e) { dispatchInfo = (e as Error).message; }
     }
     return { ...rendered, reprint: true, dispatched, dispatchInfo, printTicket: !dispatched };
+  });
+
+  // Εκτύπωση/επανεκτύπωση ΑΠΟΔΕΙΞΗΣ ΛΙΑΝΙΚΗΣ (προϊόντα) — ενοποιημένη, όλα τα είδη μαζί.
+  app.post('/api/fiscal/documents/retail-print', { preHandler: requireManager }, async (req, reply) => {
+    const { saleId } = (req.body ?? {}) as { saleId?: number };
+    if (!saleId) return reply.code(400).send({ error: 'Λείπει το saleId.' });
+    const venue = db.prepare('SELECT default_printer_type FROM venue WHERE id = 1').get() as any;
+    const targetPrinter = db.prepare('SELECT * FROM printers WHERE is_default = 1').get() as any;
+    const printerType: PrinterType = (targetPrinter?.type as PrinterType) ?? (venue?.default_printer_type as PrinterType) ?? 'escpos80';
+    const r = renderRetail(buildRetailReceipt(Number(saleId)), printerType, retailForm());
+    return { previews: [r.preview] };
   });
 
   // Εκτύπωση ΠΙΣΤΩΤΙΚΟΥ (όχι εισιτηρίου) — δείχνει στοιχεία πιστωτικού: τύπο, σειρά/ΑΑ, ΜΑΡΚ, είδη.
@@ -684,6 +714,47 @@ export default async function salesRoutes(app: FastifyInstance) {
 
 function labelPayment(m: string): string {
   return m === 'cash' ? 'ΜΕΤΡΗΤΑ' : m === 'card' ? 'ΚΑΡΤΑ' : 'ΤΡΑΠΕΖΑ';
+}
+
+/** Μορφοποίηση ημ/νίας θεάματος YYYY-MM-DD → DD/MM/YYYY για εκτύπωση. */
+function dmyShow(s?: string): string {
+  return s && /^\d{4}-\d{2}-\d{2}/.test(s) ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : (s ?? '');
+}
+
+/** Είναι η πώληση εμπορικών προϊόντων (κάποιο είδος με kind=1); */
+function saleIsProduct(saleId: number): boolean {
+  return !!db.prepare('SELECT 1 FROM sale_items si JOIN ticket_types tt ON tt.id = si.ticket_type_id WHERE si.sale_id = ? AND tt.kind = 1 LIMIT 1').get(saleId);
+}
+
+/** Επεξεργάσιμη φόρμα Απόδειξης Λιανικής (header/footer/showVat + code page) από print_templates. */
+function retailForm(): { header?: string; footer?: string; showVat: boolean } {
+  const r = db.prepare("SELECT header, footer, params FROM print_templates WHERE doc_type = 'retail' ORDER BY id LIMIT 1").get() as any;
+  let p: any = {}; try { p = JSON.parse(r?.params ?? '{}'); } catch { /* default */ }
+  return { header: r?.header || undefined, footer: r?.footer || undefined, showVat: p.showVat !== false };
+}
+
+/** Δομή ΑΠΟΔΕΙΞΗΣ ΛΙΑΝΙΚΗΣ από αποθηκευμένη πώληση (για επανεκτύπωση/εκτύπωση όλων των ειδών μαζί). */
+function buildRetailReceipt(saleId: number): any {
+  const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId) as any;
+  const items = db.prepare('SELECT title, qty, unit_price, line_total, vat_rate FROM sale_items WHERE sale_id = ?').all(saleId) as any[];
+  const customer = sale?.customer_id ? (db.prepare('SELECT full_name, vat_number FROM customers WHERE id = ?').get(sale.customer_id) as any) : null;
+  const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
+  const fd = db.prepare("SELECT series, aa, mark, qr_url FROM fiscal_documents WHERE sale_id = ? AND role = 'sale' AND status = 'transmitted' ORDER BY id DESC LIMIT 1").get(saleId) as any;
+  const tk = db.prepare("SELECT fiscal_doc_type FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id WHERE si.sale_id = ? AND t.fiscal_doc_type IS NOT NULL LIMIT 1").get(saleId) as any;
+  // Code page / ESC ελληνικών κληρονομείται από τις υφιστάμενες ρυθμίσεις φόρμας εισιτηρίου (id=1).
+  const tplRow = db.prepare('SELECT params FROM print_templates WHERE id = 1').get() as any;
+  let tp: any = {}; try { tp = JSON.parse(tplRow?.params ?? '{}'); } catch { /* default */ }
+  return {
+    venueName: venue?.name ?? '', vatNumber: venue?.vat_number, address: venue?.address,
+    cityLine: [venue?.postal_code, venue?.city].filter(Boolean).join(' '), phone: venue?.phone, taxOffice: venue?.tax_office,
+    docType: tk?.fiscal_doc_type || 'ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ', series: fd?.series, aa: fd?.aa,
+    datetime: String(sale?.datetime ?? '').replace('T', ' ').slice(0, 16),
+    customerName: customer?.full_name, customerVat: customer?.vat_number,
+    items: items.map((it) => ({ name: it.title, qty: Number(it.qty) || 1, unitPrice: Number(it.unit_price) || 0, lineTotal: Number(it.line_total) || 0, vatRate: Number(it.vat_rate) || 0 })),
+    total: Number(sale?.total) || 0, paymentMethod: labelPayment(sale?.payment_method),
+    mark: fd?.mark, markQr: fd?.qr_url, legalNote: '',
+    codePage: tp.codePage, escposPageId: tp.escposPageId,
+  };
 }
 
 /** 'YYYY-MM-DD HH:MM:SS' → 'DD/MM/YYYY HH:MM' (για επανεκτύπωση με αρχική ώρα). */

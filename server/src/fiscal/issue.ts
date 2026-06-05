@@ -6,11 +6,12 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db.js';
 import { RapidSignProvider, vatCatIdFromRate, type FiscalEnv, type IssueParty } from './rapidsign.js';
+import { loadDocList, pickSaleDoc, pickCreditDoc } from './docs.js';
 
 export interface FiscalOutcome { ok: boolean; mark?: string; qrUrl?: string; providerUrl?: string; isNew?: boolean; series?: string; aa?: string; docType?: string; error?: string; }
 
 const _dmy = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : (d ?? ''));
-/** Περιγραφή γραμμής παραστατικού: «Τύπος - Θέαμα [Θέση] - ημ/νία ώρα». Χρησιμοποιείται σε ΑΠΥ & Πιστωτικό. */
+/** Περιγραφή γραμμής παραστατικού: «ΕΙΔΟΣ - ΘΕΑΜΑ - ΩΡΑ - ΘΕΣΗ». Χρησιμοποιείται σε ΑΠΥ & Πιστωτικό. */
 export function lineDescription(it: any): string {
   const ttype = (it.title || 'Εισιτήριο').trim();
   const show = it.show_id ? (db.prepare('SELECT title, start_time FROM shows WHERE id = ?').get(it.show_id) as any) : null;
@@ -21,8 +22,8 @@ export function lineDescription(it: any): string {
     seatLbl = (se?.display_name || `${se?.row_label ?? ''}${se?.col_label ?? ''}`).trim();
   }
   const when = [_dmy(it.show_date), show?.start_time].filter(Boolean).join(' ');
-  const head = [ttype, [showTitle, seatLbl].filter(Boolean).join(' ')].filter(Boolean).join(' - ');
-  return [head, when].filter(Boolean).join(' - ').slice(0, 200) || ttype;
+  // Σειρά: ΕΙΔΟΣ - ΘΕΑΜΑ - ΩΡΑ - ΘΕΣΗ (κάθε πεδίο χωριστά, με «-»).
+  return [ttype, showTitle, when, seatLbl].filter(Boolean).join(' - ').slice(0, 200) || ttype;
 }
 
 /** Φτιάχνει provider + config μόνο αν είναι ενεργή η λειτουργία 'provider' με credentials. */
@@ -52,23 +53,39 @@ function issuerOf(cfg: any, venue: any, branch = 0): IssueParty {
 export async function issueForSale(saleId: number, opts?: { vivaTxId?: string }): Promise<FiscalOutcome | null> {
   const pc = providerCfg(); if (!pc) return null;
   const { provider, cfg, venue } = pc;
-  const apy = (cfg.docs && cfg.docs.apy) || {};
-  const docType = apy.docLabel || 'ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ';
-  const already = db.prepare("SELECT mark, qr_provider, qr_url, series, aa FROM fiscal_documents WHERE sale_id = ? AND role = 'sale' AND status = 'transmitted'").get(saleId) as any;
-  if (already) return { ok: true, mark: already.mark ?? undefined, providerUrl: already.qr_provider ?? undefined, qrUrl: already.qr_url ?? undefined, series: already.series ?? undefined, aa: already.aa ?? undefined, docType, isNew: false };
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId) as any;
   if (!sale) return { ok: false, error: 'Δεν βρέθηκε πώληση' };
   const items = db.prepare('SELECT * FROM sale_items WHERE sale_id = ?').all(saleId) as any[];
   const cust = sale.customer_id ? (db.prepare('SELECT * FROM customers WHERE id = ?').get(sale.customer_id) as any) : null;
 
+  // Είδος πώλησης: αν περιέχει εμπορικό προϊόν (ticket_types.kind=1) → προϊόν (Απόδειξη Λιανικής)·
+  // αλλιώς υπηρεσία (ΑΠΥ). Επιλογή παραστατικού από την ενιαία λίστα (docs.list) βάσει χρήσης. Λιανική μόνο.
+  const isProductSale = items.some((it: any) => it.ticket_type_id
+    && ((db.prepare('SELECT kind FROM ticket_types WHERE id = ?').get(it.ticket_type_id) as any)?.kind === 1));
+  const docList = loadDocList(cfg.docs);
+  const apy: any = pickSaleDoc(docList, isProductSale, 'retail') || {};
+  const docType: string = apy.label || (isProductSale ? 'ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ' : 'ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ');
+  const series: string = apy.series || (isProductSale ? 'ΑΛΠ' : 'ΑΠΥ');
+  const already = db.prepare("SELECT mark, qr_provider, qr_url, series, aa FROM fiscal_documents WHERE sale_id = ? AND role = 'sale' AND status = 'transmitted'").get(saleId) as any;
+  if (already) return { ok: true, mark: already.mark ?? undefined, providerUrl: already.qr_provider ?? undefined, qrUrl: already.qr_url ?? undefined, series: already.series ?? undefined, aa: already.aa ?? undefined, docType, isNew: false };
+  // Ασφάλεια: αν δεν βρέθηκε/ενεργοποιήθηκε κατάλληλο παραστατικό πώλησης → ΜΗΝ εκδώσεις λάθος.
+  if (!Number(apy.invoiceTypeId)) {
+    return { ok: false, error: isProductSale
+      ? 'Δεν έχει οριστεί/ενεργοποιηθεί παραστατικό πώλησης προϊόντων (Απόδειξη Λιανικής) στις Ρυθμίσεις → Παραστατικά.'
+      : 'Δεν έχει οριστεί/ενεργοποιηθεί παραστατικό πώλησης υπηρεσιών (ΑΠΥ) στις Ρυθμίσεις → Παραστατικά.' };
+  }
+
   const lines = items.map((it: any, i: number) => {
     const gross = +Number(it.line_total).toFixed(2);
     const vr = Number(it.vat_rate) || 0;
     const net = +(vr ? gross / (1 + vr / 100) : gross).toFixed(2);
+    const vcat = vatCatIdFromRate(vr);
     return {
       code: String(it.ticket_type_id ?? `L${i + 1}`), name: lineDescription(it),
       qty: Number(it.qty) || 1, unitPriceInclVat: +Number(it.unit_price).toFixed(2),
-      netValue: net, vatAmount: +(gross - net).toFixed(2), vatCatId: vatCatIdFromRate(vr),
+      netValue: net, vatAmount: +(gross - net).toFixed(2), vatCatId: vcat,
+      // ΦΠΑ 0% (κατηγορία 7) → απαιτείται Κατηγορία Απαλλαγής (άρθρο/απόφαση) από τον πάροχο.
+      vatExcCatId: vcat === 7 && Number.isFinite(Number(apy.vatExemptionId)) ? Number(apy.vatExemptionId) : null,
       incomeCatId: Number.isFinite(Number(apy.incomeCatId)) ? Number(apy.incomeCatId) : 2,
       incomeValId: Number.isFinite(Number(apy.incomeValId)) ? Number(apy.incomeValId) : 8,
     };
@@ -76,22 +93,27 @@ export async function issueForSale(saleId: number, opts?: { vivaTxId?: string })
   const totalGross = +lines.reduce((s, l) => s + l.unitPriceInclVat * l.qty, 0).toFixed(2);
   const totalNet = +lines.reduce((s, l) => s + l.netValue, 0).toFixed(2);
   const totalVat = +lines.reduce((s, l) => s + l.vatAmount, 0).toFixed(2);
+  // Φραγή: πώληση χωρίς γραμμές ή μηδενικό ποσό → ΔΕΝ εκδίδουμε (ούτε καταχωρούμε «error», ούτε καταναλώνουμε αα).
+  if (!lines.length || totalGross <= 0) return { ok: false, error: 'Μηδενικό/κενό ποσό — δεν εκδίδεται παραστατικό' };
   const isCard = sale.payment_method === 'card';
   const payId = isCard ? (Number(apy.paymentCardId) || 7) : (Number(apy.paymentCashId) || 3);
 
   // Αα = ΜΕΓΙΣΤΟ αα που έχει σταλεί ποτέ + 1 (ώστε να ΜΗΝ ξαναχρησιμοποιείται — ακόμη κι αν ένα
   // βήμα-1 κάρτας καταχώρησε εκκρεμές παραστατικό στον πάροχο που δεν ολοκληρώθηκε).
   // Αν έχει οριστεί «Αρχικός Αα» στις ρυθμίσεις, ξεκινάμε από εκεί (το μέγιστο των δύο).
-  const maxNext = ((db.prepare("SELECT MAX(CAST(aa AS INTEGER)) AS m FROM fiscal_documents WHERE role = 'sale'").get() as any).m || 0) + 1;
+  const maxNext = ((db.prepare("SELECT MAX(CAST(aa AS INTEGER)) AS m FROM fiscal_documents WHERE role = 'sale' AND series = ? AND status = 'transmitted'").get(series) as any).m || 0) + 1;
   const aaStart = Number(apy.aaStart);
-  const aaNum = Number.isFinite(aaStart) && aaStart > maxNext ? aaStart : maxNext;
-  // Στοιχείο πληρωμής:
-  //  • Μετρητά → PaymentStatus 2 + acquirer + tid (δουλεύει).
-  //  • Κάρτα ΜΕ πραγματικό Viva transactionId → δήλωση POS (PaymentStatus 2 + acquirer + tid).
-  //  • Κάρτα ΧΩΡΙΣ transactionId → PaymentStatus 1 (δηλωμένη, χωρίς αποδοχή POS· το 2→1192, το 0→1006).
+  let aaNum = Number.isFinite(aaStart) && aaStart > maxNext ? aaStart : maxNext;
+  // Στοιχείο πληρωμής. ΚΑΝΟΝΑΣ ΠΑΡΟΧΟΥ (επιβεβαιωμένος από επιτυχημένες εκδόσεις):
+  // όταν υπάρχει PaymentStatus, ΠΡΕΠΕΙ να συνοδεύεται από AcquirerId + TidNsp· αλλιώς → 1174 «token μόνο POS»·
+  // αν λείπει εντελώς → 1006 «εκτός ορίων». Άρα ΟΛΑ (μετρητά & κάρτα) πάνε με PaymentStatus + Acquirer + Tid.
+  //  • Μετρητά → PaymentStatus από το doc (default 2 «Με Διασύνδεση») + acquirer + tid.
+  //  • Κάρτα ΜΕ πραγματικό Viva transactionId → PaymentStatus 2 + acquirer + το πραγματικό tid.
+  //  • Κάρτα ΧΩΡΙΣ transactionId → PaymentStatus από το doc + acquirer + tid.
   const pay: any = { payGuid: randomUUID(), paymentId: payId, net: totalNet, vat: totalVat, amount: totalGross };
   if (!isCard) {
-    pay.paymentStatus = Number(apy.paymentStatus) || 2;
+    // ΜΕΤΡΗΤΑ: ο πάροχος δέχεται ΜΟΝΟ PaymentStatus 2 (ολοκληρωμένη). Το 1 («εκκρεμεί αντιστοίχιση POS») → 1174.
+    pay.paymentStatus = 2;
     pay.acquirerId = Number(apy.acquirerId) || 122;
     pay.tidNsp = String(Date.now()).slice(-8);
   } else if (opts?.vivaTxId) {
@@ -105,8 +127,12 @@ export async function issueForSale(saleId: number, opts?: { vivaTxId?: string })
     pay.acquirerId = Number(apy.acquirerId) || 122;
     pay.tidNsp = String(Date.now()).slice(-8);
   }
-  const res = await provider.postInvoice({
-    invoiceTypeId: Number(apy.invoiceTypeId) || 20, series: apy.series || cfg.series || 'ΑΠY',
+  // Έκδοση με auto-retry: αν ο πάροχος έχει ΗΔΗ ΜΑΡΚ για αυτό το αα (σφάλμα 1114, π.χ. ο πάροχος είναι
+  // μπροστά από την τοπική αρίθμηση), αυξάνουμε το αα και ξαναδοκιμάζουμε (μέχρι 25 φορές).
+  let res: any;
+  for (let _attempt = 0; _attempt < 25; _attempt++) {
+  res = await provider.postInvoice({
+    invoiceTypeId: Number(apy.invoiceTypeId) || 20, series,
     aa: String(aaNum), counter: 1, issueDate: new Date().toISOString(), currencyId: 47,
     issuer: issuerOf(cfg, venue, Number(apy.branch) || 0),
     // Όταν υπάρχει πελάτης (π.χ. online ή επιλεγμένος στο ταμείο), στέλνουμε τα στοιχεία του
@@ -114,7 +140,7 @@ export async function issueForSale(saleId: number, opts?: { vivaTxId?: string })
     counterpart: cust
       ? {
           vatNumber: cust.vat_number || '000000000', countryId: 87, branch: 0,
-          name: cust.full_name || 'Πελάτης λιανικής',
+          name: cust.full_name || 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ',
           code: cust.vat_number ? String(cust.id) : 'ΛΙΑΝΙΚΗ',
           phone: cust.phone1 || cust.phone || undefined,
           email: cust.email || undefined,
@@ -125,27 +151,30 @@ export async function issueForSale(saleId: number, opts?: { vivaTxId?: string })
     lines,
     payments: [pay],
   });
+    const dupAa = !res.ok && /\b1114\b|έχει λάβει ήδη|έχει λάβει Μ\.?ΑΡ\.?Κ/i.test(String(res.error ?? '') + JSON.stringify(res.raw ?? ''));
+    if (!dupAa) break;
+    aaNum += 1; // ο πάροχος έχει ήδη αυτό το αα — δοκίμασε το επόμενο
+  }
 
   const ins = db.prepare(`INSERT INTO fiscal_documents
     (sale_id, role, provider, invoice_type_id, series, aa, mark, uid, auth_code, qr_url, qr_provider, guid, status, net, vat, total, raw)
     VALUES (?, 'sale', 'rapidsign', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   if (res.ok && res.mark) {
-    ins.run(saleId, Number(apy.invoiceTypeId) || 20, apy.series || 'ΑΠY', String(aaNum),
+    ins.run(saleId, Number(apy.invoiceTypeId) || 20, series, String(aaNum),
       res.mark, res.uid ?? null, res.authenticationCode ?? null, res.qrCodeMyData ?? null, res.qrCode ?? null, res.guid ?? null,
       'transmitted', totalNet, totalVat, totalGross, JSON.stringify(res.raw ?? '').slice(0, 4000));
     // Αποτύπωση παραστατικού πάνω στα εισιτήρια της πώλησης (για επανεκτύπωση/ιχνηλασιμότητα).
-    const seriesVal = apy.series || cfg.series || 'ΑΠY';
     try {
       db.prepare(
         `UPDATE tickets SET fiscal_mark = ?, fiscal_series = ?, fiscal_aa = ?, fiscal_qr = ?, fiscal_doc_type = ?
           WHERE sale_item_id IN (SELECT id FROM sale_items WHERE sale_id = ?)`
-      ).run(res.mark ?? null, seriesVal, String(aaNum), res.qrCodeMyData ?? null, docType, saleId);
+      ).run(res.mark ?? null, series, String(aaNum), res.qrCodeMyData ?? null, docType, saleId);
     } catch { /* οι στήλες ίσως δεν υπάρχουν σε πολύ παλιά βάση */ }
-    return { ok: true, mark: res.mark, qrUrl: res.qrCodeMyData, providerUrl: res.qrCode, series: seriesVal, aa: String(aaNum), docType, isNew: true };
+    return { ok: true, mark: res.mark, qrUrl: res.qrCodeMyData, providerUrl: res.qrCode, series, aa: String(aaNum), docType, isNew: true };
   }
   // Αποτυχία ή κενό ΜΑΡΚ → αποθήκευση ΟΛΟΥ του raw (request + response) για διάγνωση.
   const rawDump = JSON.stringify(res.raw ?? res.error ?? '').slice(0, 4000);
-  ins.run(saleId, Number(apy.invoiceTypeId) || 20, apy.series || 'ΑΠY', String(aaNum),
+  ins.run(saleId, Number(apy.invoiceTypeId) || 20, series, String(aaNum),
     null, null, null, null, null, null, 'error', totalNet, totalVat, totalGross, rawDump);
   return { ok: false, error: res.error };
 }
@@ -154,9 +183,18 @@ export async function issueForSale(saleId: number, opts?: { vivaTxId?: string })
 export async function creditForSale(saleId: number, _reason: string, amount?: { net: number; vat: number; total: number }): Promise<FiscalOutcome | null> {
   const pc = providerCfg(); if (!pc) return null;
   const { provider, cfg, venue } = pc;
-  const cr = (cfg.docs && cfg.docs.credit) || {};
+  // Πιστωτικό: βρες το παραστατικό πώλησης (υπηρεσία/προϊόν) και πάρε το συνδεδεμένο πιστωτικό του.
+  const isProdCredit = !!db.prepare('SELECT 1 FROM sale_items si JOIN ticket_types tt ON tt.id = si.ticket_type_id WHERE si.sale_id = ? AND tt.kind = 1 LIMIT 1').get(saleId);
+  const docList = loadDocList(cfg.docs);
+  const saleDoc = pickSaleDoc(docList, isProdCredit, 'retail');
+  const cr: any = pickCreditDoc(docList, saleDoc) || {};
+  if (!Number(cr.invoiceTypeId)) {
+    return { ok: false, error: isProdCredit
+      ? 'Δεν έχει οριστεί πιστωτικό για το παραστατικό πωλήσεων προϊόντων (Πιστωτικό Λιανικής) στις Ρυθμίσεις → Παραστατικά.'
+      : 'Δεν έχει οριστεί πιστωτικό για το παραστατικό υπηρεσιών (ΠΑΠΥ) στις Ρυθμίσεις → Παραστατικά.' };
+  }
   const orig = db.prepare("SELECT * FROM fiscal_documents WHERE sale_id = ? AND role = 'sale' AND status = 'transmitted' ORDER BY id DESC LIMIT 1").get(saleId) as any;
-  if (!orig || !orig.mark) return { ok: false, error: 'Δεν βρέθηκε διαβιβασμένο ΑΠΥ για ακύρωση' };
+  if (!orig || !orig.mark) return { ok: false, error: 'Δεν βρέθηκε διαβιβασμένο παραστατικό για ακύρωση' };
   const sale = db.prepare('SELECT * FROM sales WHERE id = ?').get(saleId) as any;
   const cust = sale?.customer_id ? (db.prepare('SELECT * FROM customers WHERE id = ?').get(sale.customer_id) as any) : null;
   // Ποσό πιστωτικού: του συγκεκριμένου εισιτηρίου (αν δόθηκε) αλλιώς όλο το αρχικό ΑΠΥ.
@@ -164,13 +202,15 @@ export async function creditForSale(saleId: number, _reason: string, amount?: { 
   const vat = +Number(amount ? amount.vat : orig.vat).toFixed(2);
   const total = +Number(amount ? amount.total : orig.total).toFixed(2);
   const rate = net > 0 ? Math.round((vat / net) * 100) : 0;
-  // ΑΑ πιστωτικού: μέγιστο της σειράς πιστωτικού + 1· αν έχει οριστεί «Αρχικός ΑΑ» στις ρυθμίσεις, από εκεί.
-  const crMaxNext = ((db.prepare("SELECT MAX(CAST(aa AS INTEGER)) AS m FROM fiscal_documents WHERE role = 'credit'").get() as any).m || 0) + 1;
+  // ΑΑ πιστωτικού: ΑΝΑ ΣΕΙΡΑ (μέγιστο της σειράς + 1)· αν έχει οριστεί «Αρχικός ΑΑ», από εκεί (το μεγαλύτερο).
+  const crSeries = cr.series || 'ΠΑΠΥ';
+  const crMaxNext = ((db.prepare("SELECT MAX(CAST(aa AS INTEGER)) AS m FROM fiscal_documents WHERE role = 'credit' AND series = ? AND status = 'transmitted'").get(crSeries) as any).m || 0) + 1;
   const crStart = Number(cr.aaStart);
   const crAa = Number.isFinite(crStart) && crStart > crMaxNext ? crStart : crMaxNext;
-  const crSeries = cr.series || 'ΠΑΠΥ';
   const crIncCat = Number.isFinite(Number(cr.incomeCatId)) ? Number(cr.incomeCatId) : 2;
   const crIncVal = Number.isFinite(Number(cr.incomeValId)) ? Number(cr.incomeValId) : 8;
+  const crVatEx = Number(cr.vatExemptionId ?? saleDoc?.vatExemptionId);
+  const excFor = (vcat: number) => (vcat === 7 && Number.isFinite(crVatEx) ? crVatEx : null);
 
   // Γραμμές πιστωτικού: πλήρης αντιλογισμός → μία γραμμή ανά είδος της πώλησης, με την ίδια περιγραφή
   // (Τύπος - Θέαμα [Θέση] - ημ/ώρα). Μερικός (όταν δόθηκε amount) → μία γραμμή με περιγραφή του θεάματος.
@@ -181,13 +221,15 @@ export async function creditForSale(saleId: number, _reason: string, amount?: { 
       const gross = +Number(it.line_total).toFixed(2);
       const vr = Number(it.vat_rate) || 0;
       const n = +(vr ? gross / (1 + vr / 100) : gross).toFixed(2);
+      const vc = vatCatIdFromRate(vr);
       return { code: String(it.ticket_type_id ?? `L${i + 1}`), name: lineDescription(it), qty: Number(it.qty) || 1, unitPriceInclVat: +Number(it.unit_price).toFixed(2),
-        netValue: n, vatAmount: +(gross - n).toFixed(2), vatCatId: vatCatIdFromRate(vr), incomeCatId: crIncCat, incomeValId: crIncVal };
+        netValue: n, vatAmount: +(gross - n).toFixed(2), vatCatId: vc, vatExcCatId: excFor(vc), incomeCatId: crIncCat, incomeValId: crIncVal };
     });
   } else {
     const code0 = items.length ? String(items[0].ticket_type_id ?? 'L1') : 'L1';
     const desc = items.length ? lineDescription(items[0]) : 'Πιστωτικό / Επιστροφή';
-    lines = [{ code: code0, name: desc, qty: 1, unitPriceInclVat: total, netValue: net, vatAmount: vat, vatCatId: vatCatIdFromRate(rate), incomeCatId: crIncCat, incomeValId: crIncVal }];
+    const vc = vatCatIdFromRate(rate);
+    lines = [{ code: code0, name: desc, qty: 1, unitPriceInclVat: total, netValue: net, vatAmount: vat, vatCatId: vc, vatExcCatId: excFor(vc), incomeCatId: crIncCat, incomeValId: crIncVal }];
   }
 
   // ΛΙΑΝΙΚΗ (Πιστωτικό Στοιχ. Λιανικής 11.4 / type 22): ΧΩΡΙΣ συσχετιζόμενο παραστατικό, ΧΩΡΙΣ
@@ -200,7 +242,7 @@ export async function creditForSale(saleId: number, _reason: string, amount?: { 
     counterpart: cust
       ? {
           vatNumber: cust.vat_number || '000000000', countryId: 87, branch: 0,
-          name: cust.full_name || 'Πελάτης λιανικής', code: cust.vat_number ? String(cust.id) : 'ΛΙΑΝΙΚΗ',
+          name: cust.full_name || 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ', code: cust.vat_number ? String(cust.id) : 'ΛΙΑΝΙΚΗ',
           phone: cust.phone1 || cust.phone || undefined, email: cust.email || undefined,
           address: { City: cust.city, PostalCode: cust.postal_code, Street: cust.address, Number: '' },
         }

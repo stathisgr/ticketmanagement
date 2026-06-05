@@ -138,8 +138,11 @@ export class RapidSignProvider {
   async postInvoice(req: IssueRequest): Promise<IssueResult> {
     try {
       const cp = req.counterpart ?? {
-        vatNumber: '000000000', countryId: 87, branch: 0, name: 'Πελάτης λιανικής', code: 'ΛΙΑΝΙΚΗ',
+        vatNumber: '000000000', countryId: 87, branch: 0, name: 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ', code: 'ΛΙΑΝΙΚΗ',
       };
+      // Υπάρχει πληρωμή POS/κάρτας; (κάποιο PaymentStatus > 0). Αν ΟΧΙ (μόνο μετρητά), ΔΕΝ στέλνουμε
+      // καθόλου PaymentStatus — ούτε top-level — αλλιώς ο πάροχος το θεωρεί αίτημα token (1174) ή «εκτός ορίων» (1006).
+      const hasPosPayment = req.payments.some((p) => Number(p.paymentStatus) > 0);
       const body = {
         Guid: cryptoRandomUUID(),
         TransmissionFailure: false,
@@ -149,7 +152,7 @@ export class RapidSignProvider {
         ShowCounterpart: req.showCounterpart ?? false,
         DeferredTransaction: false,
         ReceiptStatus: 0,
-        PaymentStatus: 0,
+        ...(hasPosPayment ? { PaymentStatus: 0 } : {}),
         DiscServer: false,
         InvoiceHeader: {
           InvoiceTypeId: req.invoiceTypeId,

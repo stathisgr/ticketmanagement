@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { db, localDate } from '../db.js';
+import { db, localDate, kindClause } from '../db.js';
 import { requireManager } from '../auth.js';
 
 /** Όλες οι αναφορές είναι μόνο για Manager και φιλτράρουν βάσει ημερομηνίας πώλησης. */
@@ -13,22 +13,23 @@ export default async function reportRoutes(app: FastifyInstance) {
   // Σύνοψη: τζίρος, ΦΠΑ, πωλήσεις, τεμάχια, ανά τρόπο πληρωμής, POS vs Αίθουσες
   app.get('/api/reports/summary', { preHandler: requireManager }, async (req) => {
     const [from, to] = range(req);
+    const kind = (req.query as any).kind as string | undefined;
     const totals = db
       .prepare(
         `SELECT COUNT(*) AS sales, COALESCE(SUM(total),0) AS gross, COALESCE(SUM(vat_total),0) AS vat
-         FROM sales WHERE date(datetime) BETWEEN ? AND ?`
+         FROM sales WHERE date(datetime) BETWEEN ? AND ?` + kindClause(kind, 'sales')
       )
       .get(from, to) as any;
     const tickets = db
       .prepare(
         `SELECT COALESCE(SUM(si.qty),0) AS qty FROM sale_items si JOIN sales s ON s.id = si.sale_id
-         WHERE date(s.datetime) BETWEEN ? AND ?`
+         WHERE date(s.datetime) BETWEEN ? AND ?` + kindClause(kind, 's')
       )
       .get(from, to) as any;
     const byMethodRows = db
       .prepare(
         `SELECT payment_method AS method, COUNT(*) AS count, COALESCE(SUM(total),0) AS total
-         FROM sales WHERE date(datetime) BETWEEN ? AND ? GROUP BY payment_method`
+         FROM sales WHERE date(datetime) BETWEEN ? AND ?` + kindClause(kind, 'sales') + ` GROUP BY payment_method`
       )
       .all(from, to) as any[];
     const byMethod: Record<string, { count: number; total: number }> = { cash: { count: 0, total: 0 }, card: { count: 0, total: 0 } };
@@ -40,7 +41,7 @@ export default async function reportRoutes(app: FastifyInstance) {
         `SELECT CASE WHEN si.seat_id IS NULL THEN 'pos' ELSE 'hall' END AS src,
                 COALESCE(SUM(si.line_total),0) AS gross, COALESCE(SUM(si.qty),0) AS qty
          FROM sale_items si JOIN sales s ON s.id = si.sale_id
-         WHERE date(s.datetime) BETWEEN ? AND ? GROUP BY src`
+         WHERE date(s.datetime) BETWEEN ? AND ?` + kindClause(kind, 's') + ` GROUP BY src`
       )
       .all(from, to) as any[];
     const bySource: Record<string, { gross: number; qty: number }> = { pos: { gross: 0, qty: 0 }, hall: { gross: 0, qty: 0 } };
@@ -52,7 +53,7 @@ export default async function reportRoutes(app: FastifyInstance) {
         `SELECT s.source AS source, COUNT(DISTINCT s.id) AS sales,
                 COALESCE(SUM(si.line_total),0) AS gross, COALESCE(SUM(si.qty),0) AS qty
          FROM sales s LEFT JOIN sale_items si ON si.sale_id = s.id
-         WHERE date(s.datetime) BETWEEN ? AND ? GROUP BY s.source`
+         WHERE date(s.datetime) BETWEEN ? AND ?` + kindClause(kind, 's') + ` GROUP BY s.source`
       )
       .all(from, to) as any[];
     const byChannel: Record<string, { sales: number; gross: number; qty: number }> = {
@@ -88,10 +89,11 @@ export default async function reportRoutes(app: FastifyInstance) {
   // Ημερήσιος τζίρος (για γράφημα)
   app.get('/api/reports/by-day', { preHandler: requireManager }, async (req) => {
     const [from, to] = range(req);
+    const kind = (req.query as any).kind as string | undefined;
     return db
       .prepare(
         `SELECT date(datetime) AS day, COUNT(*) AS sales, COALESCE(SUM(total),0) AS gross
-         FROM sales WHERE date(datetime) BETWEEN ? AND ? GROUP BY day ORDER BY day`
+         FROM sales WHERE date(datetime) BETWEEN ? AND ?` + kindClause(kind, 'sales') + ` GROUP BY day ORDER BY day`
       )
       .all(from, to);
   });
@@ -99,6 +101,7 @@ export default async function reportRoutes(app: FastifyInstance) {
   // Ανά θέαμα
   app.get('/api/reports/by-show', { preHandler: requireManager }, async (req) => {
     const [from, to] = range(req);
+    const kind = (req.query as any).kind as string | undefined;
     return db
       .prepare(
         `SELECT sh.id, sh.title, sh.start_time, h.name AS hall_name,
@@ -107,7 +110,7 @@ export default async function reportRoutes(app: FastifyInstance) {
          JOIN sales s ON s.id = si.sale_id
          JOIN shows sh ON sh.id = si.show_id
          JOIN halls h ON h.id = sh.hall_id
-         WHERE si.show_id IS NOT NULL AND date(s.datetime) BETWEEN ? AND ?
+         WHERE si.show_id IS NOT NULL AND date(s.datetime) BETWEEN ? AND ?` + kindClause(kind, 's') + `
          GROUP BY si.show_id ORDER BY gross DESC`
       )
       .all(from, to);
@@ -116,6 +119,7 @@ export default async function reportRoutes(app: FastifyInstance) {
   // Ανά αίθουσα (πωλήσεις θέσεων)
   app.get('/api/reports/by-hall', { preHandler: requireManager }, async (req) => {
     const [from, to] = range(req);
+    const kind = (req.query as any).kind as string | undefined;
     return db
       .prepare(
         `SELECT h.name AS hall_name, COALESCE(SUM(si.qty),0) AS qty, COALESCE(SUM(si.line_total),0) AS gross
@@ -123,7 +127,7 @@ export default async function reportRoutes(app: FastifyInstance) {
          JOIN sales s ON s.id = si.sale_id
          JOIN seats se ON se.id = si.seat_id
          JOIN halls h ON h.id = se.hall_id
-         WHERE si.seat_id IS NOT NULL AND date(s.datetime) BETWEEN ? AND ?
+         WHERE si.seat_id IS NOT NULL AND date(s.datetime) BETWEEN ? AND ?` + kindClause(kind, 's') + `
          GROUP BY h.id ORDER BY gross DESC`
       )
       .all(from, to);
@@ -135,6 +139,7 @@ export default async function reportRoutes(app: FastifyInstance) {
   // αλλά εμφανίζονται ως πλήθος. Ανάλυση ΦΠΑ ανά συντελεστή + ανά εκδήλωση + αδιάθετα.
   app.get('/api/reports/fiscal', { preHandler: requireManager }, async (req) => {
     const [from, to] = range(req);
+    const kind = (req.query as any).kind as string | undefined;
     const refDate = "COALESCE(t.show_date, date(s.datetime))";
     const valNet = "si.unit_price"; // αξία ανά εισιτήριο (συμπ. ΦΠΑ)
     const vatExpr = "si.unit_price * si.vat_rate / (100 + si.vat_rate)";
@@ -143,7 +148,7 @@ export default async function reportRoutes(app: FastifyInstance) {
        JOIN sale_items si ON si.id = t.sale_item_id
        JOIN sales s ON s.id = si.sale_id
        LEFT JOIN shows sh ON sh.id = t.show_id
-       WHERE ${refDate} BETWEEN ? AND ?`;
+       WHERE ${refDate} BETWEEN ? AND ?` + kindClause(kind, 's');
 
     const totals = db.prepare(
       `SELECT SUM(CASE WHEN t.cancelled_at IS NULL THEN 1 ELSE 0 END) AS issued,
@@ -213,11 +218,12 @@ export default async function reportRoutes(app: FastifyInstance) {
   // Ανά τύπο εισιτηρίου
   app.get('/api/reports/by-type', { preHandler: requireManager }, async (req) => {
     const [from, to] = range(req);
+    const kind = (req.query as any).kind as string | undefined;
     return db
       .prepare(
         `SELECT si.title, COALESCE(SUM(si.qty),0) AS qty, COALESCE(SUM(si.line_total),0) AS gross
          FROM sale_items si JOIN sales s ON s.id = si.sale_id
-         WHERE date(s.datetime) BETWEEN ? AND ?
+         WHERE date(s.datetime) BETWEEN ? AND ?` + kindClause(kind, 's') + `
          GROUP BY si.title ORDER BY gross DESC`
       )
       .all(from, to);

@@ -18,6 +18,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  // Ληγμένο/άκυρο token (π.χ. session > 12h): καθάρισε & γύρνα στη σύνδεση αντί να «κολλάει» σε 401.
+  if (res.status === 401 && path !== '/api/login') {
+    token = null;
+    try { sessionStorage.removeItem('tm_session'); } catch { /* ignore */ }
+    if (typeof window !== 'undefined') window.location.reload();
+    throw new Error('Η σύνδεση έληξε — συνδέσου ξανά.');
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error ?? 'Σφάλμα διακομιστή');
@@ -39,6 +46,7 @@ export interface TicketType {
   vat_rate: number; default_payment: 'cash' | 'card' | 'bank' | 'prompt'; enabled: number;
   sort_order: number; color?: string; icon?: string; receipt_limit?: number;
   series_prefix?: string; series_next?: number;
+  kind?: number; // 0 = Υπηρεσία (εισιτήριο), 1 = Εμπορικό προϊόν
 }
 export type PaymentMethod = 'cash' | 'card';
 export interface TillSummary {

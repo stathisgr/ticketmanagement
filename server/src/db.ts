@@ -68,6 +68,12 @@ export function migrate(): void {
     'ALTER TABLE tickets ADD COLUMN fiscal_aa TEXT',
     'ALTER TABLE tickets ADD COLUMN fiscal_qr TEXT',
     'ALTER TABLE tickets ADD COLUMN fiscal_doc_type TEXT',
+    // Αυτόματος συγχρονισμός online (server-side, χωρίς login): λεπτά μεταξύ εκτελέσεων (0 = ανενεργό).
+    'ALTER TABLE online_config ADD COLUMN auto_sync_minutes INTEGER NOT NULL DEFAULT 0',
+    // Εκδοτήριο: είδος στοιχείου — 0 = Υπηρεσία (εισιτήριο, ΑΠΥ), 1 = Εμπορικό προϊόν (λιανική, ΑΛΠ).
+    'ALTER TABLE ticket_types ADD COLUMN kind INTEGER NOT NULL DEFAULT 0',
+    // Φόρμες ανά τύπο παραστατικού: 'ticket' (ΑΠΥ/εισιτήριο, id=1) | 'retail' (ΑΛΠ προϊόντων) | μελλοντικά.
+    "ALTER TABLE print_templates ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'ticket'",
   ];
   for (const stmt of preMigrations) {
     try { db.exec(stmt); } catch { /* ήδη εφαρμοσμένο ή ο πίνακας δεν υπάρχει */ }
@@ -157,6 +163,19 @@ function ensureDefaultUsers(): void {
 export function localDate(d: Date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * Φίλτρο πώλησης ανά είδος (Υπηρεσίες/Προϊόντα) για αναφορές/ταμείο.
+ * kind: 'service' → πωλήσεις ΧΩΡΙΣ εμπορικό προϊόν· 'product' → πωλήσεις ΜΕ προϊόν· αλλιώς (ΟΛΑ) → κενό.
+ * Προϋπόθεση: το POS δεν αναμειγνύει υπηρεσίες/προϊόντα στην ίδια πώληση.
+ * Επιστρέφει SQL fragment που προστίθεται σε WHERE (με leading « AND »).
+ */
+export function kindClause(kind: string | undefined, saleAlias = 's'): string {
+  const sub = `SELECT 1 FROM sale_items _si JOIN ticket_types _tt ON _tt.id = _si.ticket_type_id WHERE _si.sale_id = ${saleAlias}.id AND _tt.kind = 1`;
+  if (kind === 'service') return ` AND NOT EXISTS (${sub})`;
+  if (kind === 'product') return ` AND EXISTS (${sub})`;
+  return '';
 }
 
 /** Wrapper συναλλαγής: BEGIN/COMMIT/ROLLBACK. Επιστρέφει το αποτέλεσμα της fn. */

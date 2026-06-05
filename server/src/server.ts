@@ -20,6 +20,7 @@ import printerRoutes from './routes/printers.js';
 import backupRoutes from './routes/backup.js';
 import checkinRoutes from './routes/checkin.js';
 import onlineRoutes from './routes/online.js';
+import { startAutoSync } from './online/scheduler.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 3001);
@@ -74,6 +75,9 @@ async function main() {
 
   await app.listen({ port: PORT, host: HOST });
   app.log.info(`Ticket Manager API → http://localhost:${PORT}`);
+
+  // Αυτόματος συγχρονισμός online (αν ρυθμιστεί auto_sync_minutes > 0) — χωρίς ανάγκη login.
+  startAutoSync();
 }
 
 main().catch((err) => {

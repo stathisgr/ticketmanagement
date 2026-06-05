@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { mkdirSync, readdirSync, statSync, readFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, statSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { db, DATA_DIR } from '../db.js';
 import { requireManager } from '../auth.js';
@@ -47,6 +47,18 @@ export default async function backupRoutes(app: FastifyInstance) {
       reply.header('Content-Type', 'application/octet-stream');
       reply.header('Content-Disposition', `attachment; filename="${file}"`);
       return reply.send(buf);
+    } catch {
+      return reply.code(404).send({ error: 'Δεν βρέθηκε' });
+    }
+  });
+
+  // Διαγραφή συγκεκριμένου αντιγράφου (manager). Προστασία από path traversal με basename + έλεγχο κατάληξης .db.
+  app.delete('/api/backups/:file', { preHandler: requireManager }, async (req, reply) => {
+    const file = basename(String((req.params as any).file));
+    if (!file.endsWith('.db')) return reply.code(400).send({ error: 'Μη έγκυρο αρχείο' });
+    try {
+      unlinkSync(join(BACKUP_DIR, file));
+      return { ok: true, file };
     } catch {
       return reply.code(404).send({ error: 'Δεν βρέθηκε' });
     }

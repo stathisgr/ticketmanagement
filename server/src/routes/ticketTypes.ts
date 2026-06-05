@@ -19,8 +19,8 @@ export default async function ticketTypeRoutes(app: FastifyInstance) {
     if (!b?.title) return reply.code(400).send({ error: 'Λείπει ο τίτλος' });
     const info = db
       .prepare(
-        `INSERT INTO ticket_types (title, subtitle, price, default_qty, vat_rate, department, receipt_limit, default_payment, enabled, sort_order, color, icon, series_prefix, series_next)
-         VALUES (@title, @subtitle, @price, @default_qty, @vat_rate, @department, @receipt_limit, @default_payment, @enabled, @sort_order, @color, @icon, @series_prefix, @series_next)`
+        `INSERT INTO ticket_types (title, subtitle, price, default_qty, vat_rate, department, receipt_limit, default_payment, enabled, sort_order, color, icon, series_prefix, series_next, kind)
+         VALUES (@title, @subtitle, @price, @default_qty, @vat_rate, @department, @receipt_limit, @default_payment, @enabled, @sort_order, @color, @icon, @series_prefix, @series_next, @kind)`
       )
       .run({
         title: b.title,
@@ -37,6 +37,7 @@ export default async function ticketTypeRoutes(app: FastifyInstance) {
         icon: b.icon ?? null,
         series_prefix: b.series_prefix ?? null,
         series_next: Math.max(1, Number(b.series_next) || 1),
+        kind: b.kind === 1 ? 1 : 0,
       });
     return db.prepare('SELECT * FROM ticket_types WHERE id = ?').get(info.lastInsertRowid);
   });
@@ -51,7 +52,7 @@ export default async function ticketTypeRoutes(app: FastifyInstance) {
       `UPDATE ticket_types SET title=@title, subtitle=@subtitle, price=@price, default_qty=@default_qty,
         vat_rate=@vat_rate, department=@department, receipt_limit=@receipt_limit, default_payment=@default_payment,
         enabled=@enabled, sort_order=@sort_order, color=@color, icon=@icon,
-        series_prefix=@series_prefix, series_next=@series_next WHERE id=@id`
+        series_prefix=@series_prefix, series_next=@series_next, kind=@kind WHERE id=@id`
     ).run({
       id,
       title: b.title,
@@ -68,6 +69,7 @@ export default async function ticketTypeRoutes(app: FastifyInstance) {
       icon: b.icon ?? null,
       series_prefix: b.series_prefix ?? null,
       series_next: Math.max(1, Number(b.series_next) || 1),
+      kind: b.kind === 1 ? 1 : 0,
     });
     return db.prepare('SELECT * FROM ticket_types WHERE id = ?').get(id);
   });

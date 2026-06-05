@@ -6,6 +6,8 @@ import { RapidSignProvider, vatCatIdFromRate, type FiscalEnv } from '../fiscal/r
 import { VivaProvider, type VivaEnv } from '../fiscal/viva.js';
 import { sendEmail, receiptEmailHtml } from '../online/email.js';
 import { issuePendingOnline } from '../online/sync.js';
+import { DEFAULT_RETAIL_HEADER, DEFAULT_RETAIL_FOOTER } from '../print/template.js';
+import { loadDocList, pickSaleDoc, pickCreditDoc } from '../fiscal/docs.js';
 
 export default async function venueRoutes(app: FastifyInstance) {
   app.get('/api/venue', { preHandler: authenticate }, async () => {
@@ -88,9 +90,48 @@ export default async function venueRoutes(app: FastifyInstance) {
     return db.prepare('SELECT * FROM print_templates WHERE id = 1').get();
   });
 
+  // Φόρμα ΑΠΟΔΕΙΞΗΣ ΛΙΑΝΙΚΗΣ (προϊόντα) — επεξεργάσιμα header/footer· τα είδη+ΦΠΑ+σύνολα είναι αυτόματα.
+  app.get('/api/retail-template', { preHandler: authenticate }, async () => {
+    let row = db.prepare("SELECT * FROM print_templates WHERE doc_type='retail' ORDER BY id LIMIT 1").get();
+    if (!row) {
+      db.prepare(
+        `INSERT INTO print_templates (name, printer_type, header, details, footer, params, is_default, doc_type)
+         VALUES ('Απόδειξη Λιανικής', 'escpos80', @h, '', @f, '{"showVat":true}', 0, 'retail')`
+      ).run({ h: DEFAULT_RETAIL_HEADER, f: DEFAULT_RETAIL_FOOTER });
+      row = db.prepare("SELECT * FROM print_templates WHERE doc_type='retail' ORDER BY id LIMIT 1").get();
+    }
+    return row;
+  });
+  app.put('/api/retail-template', { preHandler: requireManager }, async (req) => {
+    const b = req.body as any;
+    const params = JSON.stringify({ showVat: b.showVat !== false });
+    const ex = db.prepare("SELECT id FROM print_templates WHERE doc_type='retail' ORDER BY id LIMIT 1").get() as any;
+    if (ex) {
+      db.prepare('UPDATE print_templates SET header=@h, footer=@f, params=@params WHERE id=@id')
+        .run({ id: ex.id, h: b.header ?? '', f: b.footer ?? '', params });
+    } else {
+      db.prepare(
+        `INSERT INTO print_templates (name, printer_type, header, details, footer, params, is_default, doc_type)
+         VALUES ('Απόδειξη Λιανικής', 'escpos80', @h, '', @f, @params, 0, 'retail')`
+      ).run({ h: b.header ?? '', f: b.footer ?? '', params });
+    }
+    return db.prepare("SELECT * FROM print_templates WHERE doc_type='retail' ORDER BY id LIMIT 1").get();
+  });
+
   // Fiscal config
   app.get('/api/fiscal', { preHandler: requireManager }, async () => {
-    return db.prepare('SELECT * FROM fiscal_config WHERE id = 1').get();
+    const row = db.prepare('SELECT * FROM fiscal_config WHERE id = 1').get() as any;
+    // Migration προβολής: αν δεν υπάρχει ακόμη η ενιαία λίστα, πρόσθεσέ την (με σεβασμό στις σειρές
+    // που ήδη χρησιμοποιούνται), ώστε το UI να δείχνει/αποθηκεύει σωστά. Δεν αλλάζει τη βάση μέχρι «Αποθήκευση».
+    try {
+      const cfg = JSON.parse(row?.config ?? '{}');
+      // Πάντα επιστρέφουμε την ενιαία λίστα ΔΙΟΡΘΩΜΕΝΗ (migration + repair ομόγραφων σειρών),
+      // ώστε το UI να δείχνει/αποθηκεύει ακριβώς τη σειρά που ήδη χρησιμοποιείται (π.χ. «ΑΠY» λατινικό).
+      cfg.docs = cfg.docs ?? {};
+      cfg.docs.list = loadDocList(cfg.docs);
+      row.config = JSON.stringify(cfg);
+    } catch { /* ignore */ }
+    return row;
   });
 
   app.put('/api/fiscal', { preHandler: requireManager }, async (req) => {
@@ -145,7 +186,7 @@ export default async function venueRoutes(app: FastifyInstance) {
     if (!cfg.username || !cfg.password || !cfg.activationCode)
       return reply.code(400).send({ error: 'Συμπλήρωσε & αποθήκευσε username / password / activationCode πρώτα.' });
     const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
-    const apy = (cfg.docs && cfg.docs.apy) || {};
+    const apy = pickSaleDoc(loadDocList(cfg.docs), false, 'retail') || {};
     const provider = new RapidSignProvider({
       env: (cfg.env as FiscalEnv) === 'prod' ? 'prod' : 'dev',
       username: cfg.username, password: cfg.password, activationCode: cfg.activationCode,
@@ -167,7 +208,7 @@ export default async function venueRoutes(app: FastifyInstance) {
         incomeValId: Number.isFinite(Number(apy.incomeValId)) ? Number(apy.incomeValId) : 8,
       }],
       payments: [{ payGuid: randomUUID(), paymentId: Number(apy.paymentCashId) || 3, net: 10.0, vat: 2.4, amount: 12.4,
-        paymentStatus: Number(apy.paymentStatus) || 2, acquirerId: Number(apy.acquirerId) || 122 }],
+        paymentStatus: 2, acquirerId: Number(apy.acquirerId) || 122, tidNsp: String(Date.now()).slice(-8) }],
     });
     return res;
   });
@@ -183,7 +224,7 @@ export default async function venueRoutes(app: FastifyInstance) {
   // Αναλυτική λίστα παραστατικών (σελίδα «Παραστατικά») με φίλτρα ημ/νιών + αναζήτηση.
   app.get('/api/fiscal/documents/list', { preHandler: requireManager }, async (req) => {
     const { from, to, q } = (req.query ?? {}) as { from?: string; to?: string; q?: string };
-    const where: string[] = ['1=1'];   // όλα τα παραστατικά (ΑΠΥ + Πιστωτικά)
+    const where: string[] = ["fd.status <> 'error'"];   // πραγματικά παραστατικά (ΑΠΥ + Πιστωτικά)· όχι αποτυχημένες προσπάθειες
     const params: any[] = [];
     if (from) { where.push('date(fd.created_at) >= date(?)'); params.push(from); }
     if (to) { where.push('date(fd.created_at) <= date(?)'); params.push(to); }
@@ -195,11 +236,13 @@ export default async function venueRoutes(app: FastifyInstance) {
     return db.prepare(
       `SELECT fd.id, fd.sale_id, fd.role, fd.invoice_type_id, fd.series, fd.aa, fd.mark, fd.status,
               fd.net, fd.vat, fd.total, fd.created_at, fd.raw, fd.guid, fd.qr_url, fd.qr_provider, fd.correlated_mark,
+              s.payment_method AS payment_method,
               c.full_name AS customer_name, c.vat_number AS customer_vat,
               (SELECT si.show_date FROM sale_items si WHERE si.sale_id = fd.sale_id LIMIT 1) AS show_date,
               (SELECT sh.start_time FROM sale_items si JOIN shows sh ON sh.id = si.show_id WHERE si.sale_id = fd.sale_id LIMIT 1) AS show_time,
               (SELECT COUNT(*) FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id WHERE si.sale_id = fd.sale_id) AS ticket_count,
               (SELECT GROUP_CONCAT(t.id) FROM tickets t JOIN sale_items si ON si.id = t.sale_item_id WHERE si.sale_id = fd.sale_id) AS ticket_ids,
+              (SELECT MAX(CASE WHEN tt.kind = 1 THEN 1 ELSE 0 END) FROM sale_items si JOIN ticket_types tt ON tt.id = si.ticket_type_id WHERE si.sale_id = fd.sale_id) AS is_product,
               EXISTS(SELECT 1 FROM fiscal_documents cr WHERE cr.sale_id = fd.sale_id AND cr.role = 'credit' AND cr.status = 'transmitted') AS has_credit
          FROM fiscal_documents fd
          JOIN sales s ON s.id = fd.sale_id
@@ -207,6 +250,14 @@ export default async function venueRoutes(app: FastifyInstance) {
         WHERE ${where.join(' AND ')}
         ORDER BY fd.id DESC LIMIT 500`
     ).all(...params);
+  });
+
+  // Καθαρισμός αποτυχημένων: διαγράφει παραστατικά ΧΩΡΙΣ ΜΑΡΚ (αποτυχημένες προσπάθειες έκδοσης).
+  // ΔΕΝ αγγίζει διαβιβασμένα (με ΜΑΡΚ) ούτε πωλήσεις/εισιτήρια. Επιστρέφει πλήθος που διαγράφηκαν.
+  app.post('/api/fiscal/documents/purge-failed', { preHandler: requireManager }, async () => {
+    const before = (db.prepare("SELECT COUNT(*) AS n FROM fiscal_documents WHERE mark IS NULL OR mark = ''").get() as any).n;
+    db.prepare("DELETE FROM fiscal_documents WHERE mark IS NULL OR mark = ''").run();
+    return { ok: true, deleted: Number(before) || 0 };
   });
 
   // (Η έκδοση Πιστωτικού «/api/fiscal/documents/credit» έχει μεταφερθεί στο routes/sales.ts,
@@ -269,7 +320,8 @@ export default async function venueRoutes(app: FastifyInstance) {
     if (!cfg.username || !cfg.password || !cfg.activationCode)
       return reply.code(400).send({ error: 'Συμπλήρωσε & αποθήκευσε τα credentials του παρόχου πρώτα.' });
     const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
-    const cr = (cfg.docs && cfg.docs.credit) || {};
+    const _list = loadDocList(cfg.docs);
+    const cr = pickCreditDoc(_list, pickSaleDoc(_list, false, 'retail')) || {};
     const provider = new RapidSignProvider({
       env: (cfg.env as FiscalEnv) === 'prod' ? 'prod' : 'dev',
       username: cfg.username, password: cfg.password, activationCode: cfg.activationCode,

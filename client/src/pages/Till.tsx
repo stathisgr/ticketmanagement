@@ -14,10 +14,12 @@ interface TicketRow {
 export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker' }) {
   const isManager = role === 'manager';
   const [tab, setTab] = useState<'summary' | 'tickets'>('summary');
+  const [kind, setKind] = useState<'all' | 'service' | 'product'>('service');
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
   const [summary, setSummary] = useState<TillSummary | null>(null);
   const [byType, setByType] = useState<{ title: string; qty: number; total: number }[]>([]);
+  const [byTypeProd, setByTypeProd] = useState<{ title: string; qty: number; total: number }[]>([]);
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [preview, setPreview] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<TicketRow | null>(null);
@@ -31,19 +33,22 @@ export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker'
   async function loadSummary() {
     setError('');
     try {
-      const s = await api.get<TillSummary>(`/api/till/summary?from=${qFrom}&to=${qTo}`);
+      const s = await api.get<TillSummary>(`/api/till/summary?from=${qFrom}&to=${qTo}&kind=${kind}`);
       setSummary(s);
-      if (isManager) setByType(await api.get<typeof byType>(`/api/till/by-type?from=${qFrom}&to=${qTo}`));
+      if (isManager) {
+        setByType(await api.get<typeof byType>(`/api/till/by-type?from=${qFrom}&to=${qTo}&kind=service`));
+        setByTypeProd(await api.get<typeof byType>(`/api/till/by-type?from=${qFrom}&to=${qTo}&kind=product`));
+      }
     } catch (e) { setError((e as Error).message); }
   }
   async function loadTickets() {
     setError('');
-    try { setTickets(await api.get<TicketRow[]>(`/api/tickets?from=${qFrom}&to=${qTo}`)); }
+    try { setTickets(await api.get<TicketRow[]>(`/api/tickets?from=${qFrom}&to=${qTo}&kind=${kind}`)); }
     catch (e) { setError((e as Error).message); }
   }
   function refresh() { tab === 'summary' ? loadSummary() : loadTickets(); }
 
-  useEffect(() => { loadSummary(); loadTickets(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { tab === 'summary' ? loadSummary() : loadTickets(); /* eslint-disable-next-line */ }, [kind, tab]);
 
   // Ημ. που αφορά το εισιτήριο: ημ. εκδήλωσης, αλλιώς ημ. πώλησης (λιανική POS).
   function ticketEventDate(t: TicketRow): string {
@@ -86,8 +91,10 @@ export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker'
       `Μετρητά;${m!.cash.count};${m!.cash.total.toFixed(2)}`,
       `Κάρτα;${m!.card.count};${m!.card.total.toFixed(2)}`,
       `ΣΥΝΟΛΟ;${summary.grandCount};${summary.grandTotal.toFixed(2)}`, '',
-      'Εισιτήριο;Τεμάχια;Τζίρος',
-      ...byType.map((r) => `${r.title};${r.qty};${r.total.toFixed(2)}`),
+      'ΥΠΗΡΕΣΙΕΣ / ΕΙΣΙΤΗΡΙΑ', 'Εισιτήριο;Τεμάχια;Τζίρος',
+      ...byType.map((r) => `${r.title};${r.qty};${r.total.toFixed(2)}`), '',
+      'ΠΡΟΪΟΝΤΑ', 'Προϊόν;Τεμάχια;Τζίρος',
+      ...byTypeProd.map((r) => `${r.title};${r.qty};${r.total.toFixed(2)}`),
     ];
     const blob = new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -100,6 +107,14 @@ export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker'
       <div className="flex gap-1 border-b mb-4">
         <button onClick={() => setTab('summary')} className={`px-4 py-2 -mb-px border-b-2 ${tab === 'summary' ? 'border-slate-800 font-semibold' : 'border-transparent text-gray-500'}`}>Σύνοψη</button>
         <button onClick={() => setTab('tickets')} className={`px-4 py-2 -mb-px border-b-2 ${tab === 'tickets' ? 'border-slate-800 font-semibold' : 'border-transparent text-gray-500'}`}>Εκδοθέντα εισιτήρια</button>
+      </div>
+
+      <div className="flex items-center gap-2 mb-3 text-sm">
+        <span className="text-gray-500">Είδος:</span>
+        {([['service', 'Υπηρεσίες'], ['product', 'Προϊόντα'], ['all', 'Όλα']] as const).map(([v, lbl]) => (
+          <button key={v} onClick={() => setKind(v)}
+            className={`px-3 py-1 rounded border ${kind === v ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-600'}`}>{lbl}</button>
+        ))}
       </div>
 
       {isManager ? (
@@ -122,12 +137,27 @@ export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker'
             <Card label="Κάρτα" value={m!.card.total} count={m!.card.count} color="bg-yellow-100" />
             <Card label="ΣΥΝΟΛΟ" value={summary.grandTotal} count={summary.grandCount} color="bg-slate-200" />
           </div>
-          {isManager && byType.length > 0 && (
-            <div>
-              <h3 className="font-semibold mb-2">Ανάλυση ανά τύπο εισιτηρίου</h3>
+          {isManager && (
+            <div className="mb-4">
+              <h3 className="font-semibold mb-2">Υπηρεσίες / Εισιτήρια — ανά τύπο</h3>
               <table className="w-full border text-sm">
                 <thead className="bg-gray-100"><tr><th className="text-left p-2">Εισιτήριο</th><th className="text-right p-2">Τεμάχια</th><th className="text-right p-2">Τζίρος</th></tr></thead>
-                <tbody>{byType.map((r, i) => (<tr key={i} className="border-t"><td className="p-2">{r.title}</td><td className="p-2 text-right">{r.qty}</td><td className="p-2 text-right">{r.total.toFixed(2)} €</td></tr>))}</tbody>
+                <tbody>
+                  {byType.map((r, i) => (<tr key={i} className="border-t"><td className="p-2">{r.title}</td><td className="p-2 text-right">{r.qty}</td><td className="p-2 text-right">{r.total.toFixed(2)} €</td></tr>))}
+                  {byType.length === 0 && <tr><td colSpan={3} className="p-2 text-gray-400">Καμία υπηρεσία.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {isManager && (
+            <div>
+              <h3 className="font-semibold mb-2">Προϊόντα — ανά είδος</h3>
+              <table className="w-full border text-sm">
+                <thead className="bg-gray-100"><tr><th className="text-left p-2">Προϊόν</th><th className="text-right p-2">Τεμάχια</th><th className="text-right p-2">Τζίρος</th></tr></thead>
+                <tbody>
+                  {byTypeProd.map((r, i) => (<tr key={i} className="border-t"><td className="p-2">{r.title}</td><td className="p-2 text-right">{r.qty}</td><td className="p-2 text-right">{r.total.toFixed(2)} €</td></tr>))}
+                  {byTypeProd.length === 0 && <tr><td colSpan={3} className="p-2 text-gray-400">Κανένα προϊόν.</td></tr>}
+                </tbody>
               </table>
             </div>
           )}

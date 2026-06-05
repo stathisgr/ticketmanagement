@@ -63,7 +63,13 @@ export default function POS() {
       const method = t.default_payment as PaymentMethod;
       withCard(method, t.price * qty, async (txid) => { const ok = await issueSale([{ ticket_type_id: t.id, qty }], method, txid); if (ok) setQty(1); });
     } else {
-      setResult(null);
+      // Δεν επιτρέπεται ανάμειξη υπηρεσιών (εισιτήρια) και εμπορικών προϊόντων στην ίδια έκδοση.
+      const k = t.kind ?? 0;
+      if (cart.length && (cart[0].type.kind ?? 0) !== k) {
+        setError('Δεν επιτρέπεται ανάμειξη υπηρεσιών και προϊόντων στην ίδια έκδοση. Ολοκλήρωσε ή καθάρισε το καλάθι πρώτα.');
+        return;
+      }
+      setResult(null); setError('');
       setCart((prev) => {
         const ex = prev.find((l) => l.type.id === t.id);
         if (ex) return prev.map((l) => (l.type.id === t.id ? { ...l, qty: l.qty + qty } : l));
@@ -90,7 +96,10 @@ export default function POS() {
             <button key={t.id} onClick={() => tapTicket(t)} disabled={busy}
               className="rounded-lg border shadow-sm p-3 text-left h-28 flex flex-col hover:ring-2 hover:ring-slate-400 transition disabled:opacity-50 relative"
               style={{ background: t.color ?? '#f3f4f6' }}>
-              <div className="font-bold text-lg leading-tight">{t.title}</div>
+              <div className="font-bold text-lg leading-tight flex items-center gap-1">
+                {t.icon && <span className="text-xl leading-none">{t.icon}</span>}
+                <span>{t.title}</span>
+              </div>
               <div className="text-sm text-gray-600">{t.subtitle}</div>
               {isPreset(t)
                 ? <span className="absolute top-2 right-2 text-[10px] px-1.5 py-0.5 rounded bg-white/70 border">⚡ {payLabel(t.default_payment)}</span>

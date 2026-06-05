@@ -3,10 +3,12 @@
  * Η πραγματική αποστολή σε hardware (USB/network/system spooler) εξαρτάται από
  * το περιβάλλον του πελάτη και υλοποιείται όταν οριστούν οι εκτυπωτές.
  */
-import { renderEscpos } from './escpos.js';
+import { renderEscpos, renderRetailEscpos, vatBreakdown } from './escpos.js';
 import { renderZpl } from './zpl.js';
-import { fillTemplate, type TicketContext } from './template.js';
+import { fillTemplate, fillRetail, type TicketContext, type RetailReceipt, DEFAULT_RETAIL_HEADER, DEFAULT_RETAIL_FOOTER } from './template.js';
 import { stripMarkup } from './markup.js';
+
+export interface RetailForm { header?: string; footer?: string; showVat?: boolean }
 
 export type PrinterType = 'escpos58' | 'escpos80' | 'zpl';
 
@@ -36,6 +38,46 @@ export function renderTicket(ctx: TicketContext, printerType: PrinterType, tpl: 
   }
   const bytes = renderEscpos(ctx, tpl);
   return { printerType, preview: buildPreview(ctx, tpl), payloadBase64: bytes.toString('base64') };
+}
+
+/** Απόδειξη λιανικής (προϊόντα): μία τυποποιημένη απόδειξη με όλα τα είδη + ανάλυση ΦΠΑ. */
+export function renderRetail(rc: RetailReceipt, printerType: PrinterType, form: RetailForm = {}): RenderResult {
+  const cols = printerType === 'escpos58' ? 32 : 48;
+  const bytes = renderRetailEscpos(rc, cols, form);
+  // ZPL ετικετογράφος δεν είναι για αποδείξεις — παράγουμε πάντα ESC/POS payload.
+  return { printerType: printerType === 'zpl' ? 'escpos80' : printerType, preview: retailPreview(rc, cols, form), payloadBase64: bytes.toString('base64') };
+}
+
+/** Κειμενική προεπισκόπηση απόδειξης λιανικής (για browser print / POS). */
+function retailPreview(rc: RetailReceipt, cols = 48, form: RetailForm = {}): string {
+  const line = '-'.repeat(cols);
+  const eur = (n: number) => (Number(n) || 0).toFixed(2);
+  const row = (l: string, r: string) => {
+    const left = (l.length + r.length + 1 > cols) ? l.slice(0, Math.max(0, cols - r.length - 1)) : l;
+    return left + ' '.repeat(Math.max(1, cols - left.length - r.length)) + r;
+  };
+  const out: string[] = [];
+  for (const ln of fillRetail(form.header || DEFAULT_RETAIL_HEADER, rc).split('\n')) if (ln.trim()) out.push(ln);
+  out.push(line, rc.docType || 'ΑΠΟΔΕΙΞΗ ΛΙΑΝΙΚΗΣ ΠΩΛΗΣΗΣ');
+  out.push(row(`${rc.series || ''} Νο ${rc.aa || ''}`.trim(), rc.datetime || ''));
+  out.push(`Πελάτης: ${rc.customerName || 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ'}${rc.customerVat ? ` (ΑΦΜ ${rc.customerVat})` : ''}`);
+  out.push(line);
+  for (const it of rc.items) {
+    out.push(it.name);
+    out.push(row(`  ${it.qty} x ${eur(it.unitPrice)}`, `${eur(it.lineTotal)} (${it.vatRate}%)`));
+  }
+  out.push(line);
+  if (form.showVat !== false) {
+    out.push('Ανάλυση ΦΠΑ:');
+    for (const v of vatBreakdown(rc.items)) out.push(row(` ${v.rate}%  Καθ. ${eur(v.net)}`, `ΦΠΑ ${eur(v.vat)}`));
+    out.push(line);
+  }
+  out.push(row('ΣΥΝΟΛΟ:', `${eur(rc.total)} EUR`));
+  if (rc.paymentMethod) out.push(`Πληρωμή: ${rc.paymentMethod}`);
+  if (rc.mark) out.push(`ΜΑΡΚ: ${rc.mark}`);
+  if (rc.legalNote) out.push(rc.legalNote);
+  for (const ln of fillRetail(form.footer ?? DEFAULT_RETAIL_FOOTER, rc).split('\n')) if (ln.trim()) out.push(ln);
+  return out.join('\n');
 }
 
 /** Preview κειμένου για εμφάνιση στο POS. Αν υπάρχει template, το χρησιμοποιεί. */

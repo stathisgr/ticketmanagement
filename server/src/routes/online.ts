@@ -10,6 +10,7 @@ export default async function onlineRoutes(app: FastifyInstance) {
     return {
       supabase_url: c?.supabase_url ?? '',
       sync_minutes_before: c?.sync_minutes_before ?? 60,
+      auto_sync_minutes: c?.auto_sync_minutes ?? 0,
       enabled: !!c?.enabled,
       has_key: !!c?.service_key, // δεν επιστρέφουμε ποτέ το ίδιο το κλειδί
     };
@@ -22,14 +23,15 @@ export default async function onlineRoutes(app: FastifyInstance) {
       db.prepare('UPDATE online_config SET service_key = ? WHERE id = 1').run(b.service_key);
     }
     db.prepare(
-      'UPDATE online_config SET supabase_url = ?, sync_minutes_before = ?, enabled = ? WHERE id = 1'
+      'UPDATE online_config SET supabase_url = ?, sync_minutes_before = ?, auto_sync_minutes = ?, enabled = ? WHERE id = 1'
     ).run(
       b.supabase_url ?? '',
       Math.max(0, Number(b.sync_minutes_before) || 60),
+      Math.max(0, Number(b.auto_sync_minutes) || 0),
       b.enabled ? 1 : 0,
     );
     const c = db.prepare('SELECT * FROM online_config WHERE id = 1').get() as any;
-    return { supabase_url: c.supabase_url, sync_minutes_before: c.sync_minutes_before, enabled: !!c.enabled, has_key: !!c.service_key };
+    return { supabase_url: c.supabase_url, sync_minutes_before: c.sync_minutes_before, auto_sync_minutes: c.auto_sync_minutes, enabled: !!c.enabled, has_key: !!c.service_key };
   });
 
   // --- Δημοσιεύσεις ---

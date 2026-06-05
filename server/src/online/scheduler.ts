@@ -1,0 +1,33 @@
+/**
+ * Αυτόματος συγχρονισμός online (server-side) — τρέχει ΑΝΕΞΑΡΤΗΤΑ από το αν είναι κάποιος
+ * συνδεδεμένος στην εφαρμογή. Κάθε λεπτό ελέγχει τη ρύθμιση `auto_sync_minutes` και, όταν
+ * περάσει το διάστημα, εκτελεί pull() (κατέβασμα online πωλήσεων + έκδοση ΑΠΥ + email + ελευθέρωση
+ * ακυρωμένων θέσεων). 0 λεπτά = ανενεργό.
+ */
+import { db } from '../db.js';
+import { pull } from './sync.js';
+
+let running = false;
+let lastRunMs = 0;
+
+export function startAutoSync() {
+  setInterval(async () => {
+    let cfg: any;
+    try { cfg = db.prepare('SELECT enabled, auto_sync_minutes, service_key, supabase_url FROM online_config WHERE id = 1').get(); }
+    catch { return; }
+    if (!cfg || !cfg.enabled || !cfg.service_key || !cfg.supabase_url) return;
+    const mins = Number(cfg.auto_sync_minutes) || 0;
+    if (mins <= 0 || running) return;
+    if (Date.now() - lastRunMs < mins * 60_000) return;
+    running = true;
+    try {
+      const r = await pull();
+      console.log(`[auto-sync] ${new Date().toISOString()} pulled=${r.pulled} importedSales=${r.importedSales}`);
+    } catch (e) {
+      console.error('[auto-sync] error:', (e as Error).message);
+    } finally {
+      lastRunMs = Date.now();
+      running = false;
+    }
+  }, 60_000).unref?.();
+}

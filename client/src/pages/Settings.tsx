@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api, getToken, type TicketType, type Venue, type FiscalConfig, type PrintTemplate, type Printer, type Station } from '../api';
+import Halls from './Halls';
 
-type Tab = 'business' | 'printers' | 'documents' | 'ticket' | 'types' | 'online' | 'about';
+type Tab = 'business' | 'printers' | 'documents' | 'ticket' | 'types' | 'halls' | 'online' | 'about';
 
 export default function Settings({ onSaved }: { onSaved?: () => void }) {
   const [tab, setTab] = useState<Tab>('business');
@@ -10,13 +11,14 @@ export default function Settings({ onSaved }: { onSaved?: () => void }) {
     { id: 'printers', label: 'Εκτυπωτές' },
     { id: 'documents', label: 'Παραστατικά' },
     { id: 'ticket', label: 'Φόρμες' },
-    { id: 'types', label: 'Τύποι Εισιτηρίων' },
+    { id: 'types', label: 'Εκδοτήριο' },
+    { id: 'halls', label: 'Αίθουσες' },
     { id: 'online', label: 'Online Ρυθμίσεις' },
     { id: 'about', label: 'Σχετικά' },
   ];
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <div className="flex gap-1 border-b mb-4">
+    <div className={`p-4 mx-auto ${tab === 'halls' ? 'max-w-6xl' : 'max-w-4xl'}`}>
+      <div className="flex gap-1 border-b mb-4 flex-wrap">
         {tabs.map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`px-4 py-2 -mb-px border-b-2 ${tab === t.id ? 'border-slate-800 font-semibold' : 'border-transparent text-gray-500'}`}>
@@ -27,8 +29,9 @@ export default function Settings({ onSaved }: { onSaved?: () => void }) {
       {tab === 'business' && <BusinessTab onSaved={onSaved} />}
       {tab === 'printers' && <PrintersTab />}
       {tab === 'documents' && <DocumentsTab />}
-      {tab === 'ticket' && <TicketFormTab />}
+      {tab === 'ticket' && <><TicketFormTab /><RetailFormSection /></>}
       {tab === 'types' && <TypesTab />}
+      {tab === 'halls' && <Halls />}
       {tab === 'online' && <OnlineTab />}
       {tab === 'about' && <AboutTab />}
       <style>{`.inp{width:100%;border:1px solid #d1d5db;border-radius:.375rem;padding:.45rem .6rem}`}</style>
@@ -43,9 +46,9 @@ function Msg({ text }: { text: string }) {
 }
 
 /* ---------------- Online Ρυθμίσεις (Cloud σύνδεση) ---------------- */
-interface OnlineCfg { supabase_url: string; sync_minutes_before: number; enabled: boolean; has_key: boolean; }
+interface OnlineCfg { supabase_url: string; sync_minutes_before: number; auto_sync_minutes?: number; enabled: boolean; has_key: boolean; }
 function OnlineTab() {
-  const [cfg, setCfg] = useState<OnlineCfg>({ supabase_url: '', sync_minutes_before: 60, enabled: false, has_key: false });
+  const [cfg, setCfg] = useState<OnlineCfg>({ supabase_url: '', sync_minutes_before: 60, auto_sync_minutes: 0, enabled: false, has_key: false });
   const [keyInput, setKeyInput] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
@@ -63,7 +66,7 @@ function OnlineTab() {
   async function save() {
     setBusy(true); setMsg('');
     try {
-      const body: any = { supabase_url: cfg.supabase_url, sync_minutes_before: cfg.sync_minutes_before, enabled: cfg.enabled };
+      const body: any = { supabase_url: cfg.supabase_url, sync_minutes_before: cfg.sync_minutes_before, auto_sync_minutes: cfg.auto_sync_minutes ?? 0, enabled: cfg.enabled };
       if (keyInput) body.service_key = keyInput;
       const r = await api.put<OnlineCfg>('/api/online/config', body);
       setCfg(r); setKeyInput(''); setMsg('✓ Αποθηκεύτηκε');
@@ -100,14 +103,18 @@ function OnlineTab() {
       <L label={`Κλειδί υπηρεσίας (service key)${cfg.has_key ? ' — αποθηκευμένο, άφησέ το κενό για να μην αλλάξει' : ''}`}>
         <input type="password" className="inp" placeholder={cfg.has_key ? '•••••••• αποθηκευμένο' : 'service key'} value={keyInput} onChange={(e) => setKeyInput(e.target.value)} />
       </L>
-      <div className="grid grid-cols-2 gap-3 mt-2">
-        <L label="Auto-sync: λεπτά πριν το θέαμα">
+      <div className="grid grid-cols-3 gap-3 mt-2">
+        <L label="Λεπτά πριν το θέαμα (κλείσιμο online)">
           <input type="number" min={0} className="inp" value={cfg.sync_minutes_before} onChange={(e) => setCfg({ ...cfg, sync_minutes_before: Number(e.target.value) })} />
+        </L>
+        <L label="Αυτόματος συγχρονισμός κάθε (λεπτά, 0=ανενεργό)">
+          <input type="number" min={0} className="inp" value={cfg.auto_sync_minutes ?? 0} onChange={(e) => setCfg({ ...cfg, auto_sync_minutes: Number(e.target.value) })} />
         </L>
         <label className="flex items-end gap-2 text-sm pb-2">
           <input type="checkbox" checked={cfg.enabled} onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })} /> Ενεργό
         </label>
       </div>
+      <p className="text-xs text-gray-500 mt-1">Ο αυτόματος συγχρονισμός τρέχει στον server (κατέβασμα online πωλήσεων + έκδοση παραστατικών) <b>χωρίς να χρειάζεται συνδεδεμένος χρήστης</b>. Απαιτεί ενεργή σύνδεση cloud.</p>
       <button onClick={save} disabled={busy} className="mt-3 bg-slate-800 text-white px-5 py-2 rounded disabled:opacity-40">Αποθήκευση</button>
 
       <hr className="my-5" />
@@ -268,6 +275,14 @@ function BackupSection() {
     saveBlob(file, new Uint8Array(await r.arrayBuffer()));
   }
 
+  async function del(file: string) {
+    if (!window.confirm(`Διαγραφή αντιγράφου «${file}»;`)) return;
+    setBusy(true); setMsg('');
+    try { await api.del(`/api/backups/${encodeURIComponent(file)}`); setMsg(`✓ Διαγράφηκε: ${file}`); load(); }
+    catch (e) { setMsg((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
   return (
     <div className="mt-8 border-t pt-4">
       <div className="flex items-center mb-2">
@@ -287,7 +302,10 @@ function BackupSection() {
                 <td className="p-2 font-mono">{b.file}</td>
                 <td className="p-2 text-right">{(b.size / 1024).toFixed(0)} KB</td>
                 <td className="p-2">{b.mtime.replace('T', ' ').slice(0, 16)}</td>
-                <td className="p-2 text-right"><button onClick={() => download(b.file)} className="text-blue-600">Λήψη</button></td>
+                <td className="p-2 text-right whitespace-nowrap">
+                  <button onClick={() => download(b.file)} className="text-blue-600 mr-3">Λήψη</button>
+                  <button onClick={() => del(b.file)} disabled={busy} className="text-red-600 disabled:opacity-40">Διαγραφή</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -523,33 +541,70 @@ function PrintersTab() {
 }
 
 /* ---------------- Παραστατικά (myDATA) — ρύθμιση ανά παραστατικό ---------------- */
+// Migration παλιού μοντέλου (apy/credit/extra/productDocId/productCreditDocId) → ενιαία λίστα.
+// Ίδια λογική με τον server (fiscal/docs.ts) ώστε UI & engine να συμφωνούν.
+let _docSeq = 0;
+const _docId = () => Date.now() + (++_docSeq);
+function migrateDocList(docs: any): any[] {
+  if (docs && Array.isArray(docs.list) && docs.list.length) return docs.list;
+  const out: any[] = [];
+  const apy = (docs && docs.apy) || {};
+  const credit = (docs && docs.credit) || {};
+  const extra: any[] = (docs && docs.extra) || [];
+  const CREDIT_TYPES = new Set([5, 16, 22, 23, 24]);
+  const looksCredit = (e: any) => CREDIT_TYPES.has(Number(e?.invoiceTypeId)) || /πιστωτ/i.test(String(e?.label || ''));
+  const svcCreditId: number = Number(credit.id) || _docId();
+  out.push({ id: svcCreditId, label: 'Πιστωτικό Υπηρεσιών (ΠΑΠΥ)', enabled: true, role: 'credit', for: 'service', counterpart: 'retail', creditDocId: null, invoiceTypeId: credit.invoiceTypeId ?? 22, series: credit.series ?? 'ΠΑΠΥ', aaStart: credit.aaStart ?? '', incomeCatId: credit.incomeCatId ?? 2, incomeValId: credit.incomeValId ?? 8, vatExemptionId: credit.vatExemptionId ?? 0, paymentCashId: 3, paymentCardId: 7, acquirerId: credit.acquirerId ?? 0, paymentStatus: 2 });
+  out.push({ id: Number(apy.id) || _docId(), label: 'Απόδειξη Παροχής Υπηρεσιών (ΑΠΥ)', enabled: true, role: 'sale', for: 'service', counterpart: 'retail', creditDocId: svcCreditId, invoiceTypeId: apy.invoiceTypeId ?? 20, series: apy.series ?? 'ΑΠΥ', aaStart: apy.aaStart ?? '', incomeCatId: apy.incomeCatId ?? 2, incomeValId: apy.incomeValId ?? 8, vatExemptionId: apy.vatExemptionId ?? 0, paymentCashId: apy.paymentCashId ?? 3, paymentCardId: apy.paymentCardId ?? 7, acquirerId: apy.acquirerId ?? 0, paymentStatus: apy.paymentStatus ?? 2 });
+  for (const e of extra) {
+    const isCr = looksCredit(e);
+    out.push({ id: Number(e.id) || _docId(), label: e.label || 'Παραστατικό', enabled: e.enabled !== false, role: isCr ? 'credit' : 'sale', for: 'product', counterpart: 'retail', creditDocId: isCr ? null : (String(e.id) === String(docs?.productDocId) ? (docs?.productCreditDocId ?? null) : null), invoiceTypeId: e.invoiceTypeId ?? 0, series: e.series ?? '', aaStart: e.aaStart ?? '', incomeCatId: e.incomeCatId ?? 2, incomeValId: e.incomeValId ?? 8, vatExemptionId: e.vatExemptionId ?? 0, paymentCashId: e.paymentCashId ?? 3, paymentCardId: e.paymentCardId ?? 7, acquirerId: e.acquirerId ?? 0, paymentStatus: e.paymentStatus ?? 2 });
+  }
+  for (const d of out) {
+    if (d.role === 'sale' && d.creditDocId == null) {
+      const c = out.find((x) => x.role === 'credit' && x.for === d.for);
+      if (c) d.creditDocId = c.id;
+    }
+  }
+  return out;
+}
+
 function DocumentsTab() {
   const [cfg, setCfg] = useState<any | null>(null);   // πλήρες config παρόχου (creds + docs)
   const [lookups, setLookups] = useState<any>(null);
   const [lastGuid, setLastGuid] = useState('');
   const [lastMark, setLastMark] = useState('');
   const [msg, setMsg] = useState('');
+  const [editId, setEditId] = useState<number | null>(null);
 
   useEffect(() => {
     api.get<FiscalConfig>('/api/fiscal').then((fc) => {
       let c: any = {}; try { c = fc.config ? JSON.parse(fc.config) : {}; } catch { /* ignore */ }
+      // Migration: αν δεν υπάρχει ακόμη η ενιαία λίστα, φτιάξ' την από το παλιό μοντέλο.
+      c.docs = c.docs ?? {};
+      if (!Array.isArray(c.docs.list) || !c.docs.list.length) c.docs.list = migrateDocList(c.docs);
       setCfg(c);
     }).catch((e) => setMsg((e as Error).message));
   }, []);
   if (!cfg) return <div className="text-gray-400">Φόρτωση…</div>;
 
   const hasProvider = !!cfg.username;
-  const apy = (cfg.docs && cfg.docs.apy) || {};
-  const credit = (cfg.docs && cfg.docs.credit) || {};
-  const setApy = (k: string, v: any) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), apy: { ...((c.docs ?? {}).apy ?? {}), [k]: v } } }));
-  const setCredit = (k: string, v: any) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), credit: { ...((c.docs ?? {}).credit ?? {}), [k]: v } } }));
   const email = cfg.email || {};
   const setEmail = (k: string, v: any) => setCfg((c: any) => ({ ...c, email: { ...(c.email ?? {}), [k]: v } }));
-  const extra: any[] = (cfg.docs && cfg.docs.extra) || [];
-  const setExtraArr = (arr: any[]) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), extra: arr } }));
-  const addExtra = () => setExtraArr([...extra, { id: Date.now(), label: 'Νέο παραστατικό', invoiceTypeId: 8, series: '', incomeCatId: 2, incomeValId: 8, paymentCashId: 3, paymentCardId: 7, acquirerId: 0, paymentStatus: 2 }]);
-  const updExtra = (i: number, k: string, v: any) => setExtraArr(extra.map((e, j) => (j === i ? { ...e, [k]: v } : e)));
-  const delExtra = (i: number) => setExtraArr(extra.filter((_, j) => j !== i));
+  const list: any[] = (cfg.docs && cfg.docs.list) || [];
+  const setList = (arr: any[]) => setCfg((c: any) => ({ ...c, docs: { ...(c.docs ?? {}), list: arr } }));
+  const updDoc = (id: number, k: string, v: any) => setList(list.map((d) => (d.id === id ? { ...d, [k]: v } : d)));
+  const addDoc = (role: 'sale' | 'credit') => {
+    const id = Date.now();
+    setList([...list, { id, label: role === 'credit' ? 'Νέο πιστωτικό' : 'Νέο παραστατικό', enabled: true, role, for: 'service', counterpart: 'retail', creditDocId: null, invoiceTypeId: role === 'credit' ? 22 : 20, series: '', aaStart: '', incomeCatId: 2, incomeValId: 8, vatExemptionId: 0, paymentCashId: 3, paymentCardId: 7, acquirerId: 0, paymentStatus: 2 }]);
+    setEditId(id);
+  };
+  const delDoc = (id: number) => { setList(list.filter((d) => d.id !== id)); if (editId === id) setEditId(null); };
+  const editing = list.find((d) => d.id === editId) || null;
+  const creditDocs = list.filter((d) => d.role === 'credit');
+  const hasEnabledApy = list.some((d) => d.role === 'sale' && d.enabled && d.for === 'service' && d.counterpart === 'retail');
+  const usageLabel = (d: any) => `${d.for === 'product' ? 'Προϊόντα' : 'Υπηρεσίες'} · ${d.counterpart === 'invoice' ? 'Τιμολόγιο' : 'Λιανική'}`;
+  const typeName = (id: any) => { const t = lookups?.invoiceTypes?.find((x: any) => String(x.id) === String(id)); return t ? `${t.id} — ${t.name}` : (id ? String(id) : '—'); };
 
   async function save() {
     setMsg('');
@@ -619,88 +674,112 @@ function DocumentsTab() {
       </div>
       <p className="text-xs text-gray-500 mb-4">Πάτα «Φόρτωση λιστών παρόχου» για να γεμίσουν οι επιλογές με τους επίσημους κωδικούς (τύποι, κατηγορίες/χαρακτηρισμοί εσόδου, acquirers). Ο συντελεστής ΦΠΑ αντιστοιχίζεται αυτόματα ανά τύπο εισιτηρίου (24%→1, 13%→2, 6%→3, 0%→7).</p>
 
-      {/* ΚΑΡΤΑ: ΑΠΥ */}
+      {/* ΕΝΙΑΙΑ ΛΙΣΤΑ ΠΑΡΑΣΤΑΤΙΚΩΝ */}
       <div className="border rounded-lg p-4 mb-4 bg-white">
-        <div className="flex items-center mb-2">
-          <h4 className="font-semibold">Απόδειξη Παροχής Υπηρεσιών (ΑΠΥ)</h4>
-          <span className="ml-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">έκδοση σε κάθε πώληση</span>
+        <div className="flex items-center mb-2 gap-2 flex-wrap">
+          <h4 className="font-semibold">Παραστατικά</h4>
+          <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">πώληση &amp; πιστωτικό</span>
+          <div className="ml-auto flex gap-2">
+            <button onClick={() => addDoc('sale')} className="text-sm bg-slate-700 text-white px-3 py-1 rounded">+ Πώλησης</button>
+            <button onClick={() => addDoc('credit')} className="text-sm bg-red-700 text-white px-3 py-1 rounded">+ Πιστωτικό</button>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <L label="Τύπος παραστατικού"><Sel list={lookups?.invoiceTypes} value={apy.invoiceTypeId} fallback={20} onChange={(v) => setApy('invoiceTypeId', v)} /></L>
-          <L label="Σειρά"><input className="inp" placeholder="ΑΠY" value={apy.series ?? cfg.series ?? 'ΑΠY'} onChange={(e) => setApy('series', e.target.value)} /></L>
-          <L label="Αρχικός Αα (προαιρετικό)"><input className="inp" type="number" placeholder="αυτόματο (μέγιστο+1)" value={apy.aaStart ?? ''} onChange={(e) => setApy('aaStart', e.target.value === '' ? undefined : Number(e.target.value))} /></L>
-          <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={apy.incomeCatId} fallback={2} onChange={(v) => setApy('incomeCatId', v)} /></L>
-          <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={apy.incomeValId} fallback={8} onChange={(v) => setApy('incomeValId', v)} /></L>
-          <L label="Πληρωμή · Μετρητά (PaymentId)"><input className="inp" type="number" value={apy.paymentCashId ?? 3} onChange={(e) => setApy('paymentCashId', Number(e.target.value))} /></L>
-          <L label="Πληρωμή · Κάρτα (PaymentId)"><input className="inp" type="number" value={apy.paymentCardId ?? 7} onChange={(e) => setApy('paymentCardId', Number(e.target.value))} /></L>
-          <L label="Acquirer κάρτας"><Sel list={lookups?.acquirers} value={apy.acquirerId} fallback={0} onChange={(v) => setApy('acquirerId', v)} /></L>
-          <L label="Κατάσταση πληρωμής (PaymentStatus)">
-            <select className="inp" value={apy.paymentStatus ?? 2} onChange={(e) => setApy('paymentStatus', Number(e.target.value))}>
-              <option value={2}>2 — Αποδεκτή (default που δέχεται ο πάροχος)</option>
-              <option value={1}>1 — Κανονική</option>
-            </select>
-          </L>
-        </div>
-        <div className="flex gap-2 mt-3">
+        <p className="text-xs text-gray-500 mb-2">Κάθε παραστατικό δηλώνει τη <b>χρήση</b> του (Υπηρεσίες/Προϊόντα · Λιανική/Τιμολόγιο). Σε κάθε παραστατικό <b>πώλησης</b> ορίζεις ποιο είναι το <b>πιστωτικό</b> του. Η έκδοση διαλέγει αυτόματα το σωστό παραστατικό ανά πώληση. <i>Προς το παρόν εκδίδονται μόνο Λιανικής (ΑΠΥ/ΑΛΠ)· τα Τιμολόγια ορίζονται αλλά δεν μπαίνουν ακόμη στη ροή.</i> Πάτησε σε γραμμή για επεξεργασία.</p>
+        {!hasEnabledApy && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-2 rounded text-xs mb-2">⚠ Πρέπει να υπάρχει τουλάχιστον ΕΝΑ ενεργό παραστατικό πώλησης «Υπηρεσίες · Λιανική» (ΑΠΥ).</div>
+        )}
+        <table className="w-full text-sm">
+          <thead className="text-left text-gray-500 border-b">
+            <tr><th className="py-1">Ονομασία</th><th>Ρόλος</th><th>Τύπος</th><th>Σειρά</th><th>Χρήση</th><th>Πιστωτικό</th><th className="text-center">Ενεργό</th><th></th></tr>
+          </thead>
+          <tbody>
+            {list.length === 0 && <tr><td colSpan={8} className="text-gray-400 py-2">Δεν έχουν οριστεί παραστατικά.</td></tr>}
+            {list.map((d: any) => (
+              <tr key={d.id} className="border-b hover:bg-slate-50 cursor-pointer" onClick={() => setEditId(d.id)}>
+                <td className="py-1.5 font-medium">{d.label}</td>
+                <td>{d.role === 'credit' ? <span className="text-red-700">Πιστωτικό</span> : <span className="text-emerald-700">Πώληση</span>}</td>
+                <td className="text-gray-600">{typeName(d.invoiceTypeId)}</td>
+                <td>{d.series || '—'}</td>
+                <td className="text-gray-600">{usageLabel(d)}</td>
+                <td className="text-gray-600">{d.role === 'sale' ? (list.find((x: any) => String(x.id) === String(d.creditDocId))?.label || '—') : ''}</td>
+                <td className="text-center" onClick={(ev) => ev.stopPropagation()}>
+                  <input type="checkbox" className="w-4 h-4" checked={d.enabled !== false} onChange={(ev) => updDoc(d.id, 'enabled', ev.target.checked)} />
+                </td>
+                <td className="text-right" onClick={(ev) => ev.stopPropagation()}>
+                  <button onClick={() => delDoc(d.id)} className="text-red-600 text-xs px-2">✕</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="flex gap-2 mt-3 flex-wrap border-t pt-3">
           <button onClick={testInvoice} className="bg-emerald-600 text-white px-4 py-1.5 rounded text-sm">Δοκιμή έκδοσης ΑΠΥ</button>
-        </div>
-      </div>
-
-      {/* ΚΑΡΤΑ: Πιστωτικό / Αντιλογιστικό */}
-      <div className="border rounded-lg p-4 mb-4 bg-white">
-        <div className="flex items-center mb-2">
-          <h4 className="font-semibold">Πιστωτικό / Αντιλογιστικό (ακύρωση)</h4>
-          <span className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">ακύρωση εισιτηρίου</span>
-        </div>
-        <p className="text-xs text-gray-500 mb-2">Όταν ακυρώνεται εισιτήριο που έχει διαβιβαστεί μέσω παρόχου, εκδίδεται <b>Πιστωτικό</b> που αναφέρεται στο ΜΑΡΚ του αρχικού ΑΠΥ (αντιλογισμός — myDATA). Το ταμείο λειτουργεί όπως πάντα· απλώς όταν υπάρχει πάροχος εκδίδεται και Πιστωτικό.</p>
-        <div className="grid grid-cols-2 gap-3">
-          <L label="Τύπος παραστατικού (Πιστωτικό)"><Sel list={lookups?.invoiceTypes} value={credit.invoiceTypeId} fallback={22} onChange={(v) => setCredit('invoiceTypeId', v)} /></L>
-          <L label="Σειρά"><input className="inp" placeholder="ΠΑΠΥ" value={credit.series ?? 'ΠΑΠΥ'} onChange={(e) => setCredit('series', e.target.value)} /></L>
-          <L label="Αρχικός ΑΑ (προαιρετικό)"><input className="inp" type="number" placeholder="αυτόματο (μέγιστο+1)" value={credit.aaStart ?? ''} onChange={(e) => setCredit('aaStart', e.target.value === '' ? undefined : Number(e.target.value))} /></L>
-          <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={credit.incomeCatId} fallback={2} onChange={(v) => setCredit('incomeCatId', v)} /></L>
-          <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={credit.incomeValId} fallback={8} onChange={(v) => setCredit('incomeValId', v)} /></L>
-        </div>
-        <div className="flex gap-2 mt-3 flex-wrap">
           <button onClick={testCredit} disabled={!lastMark} className="bg-red-600 text-white px-4 py-1.5 rounded text-sm disabled:opacity-40">Δοκιμή Πιστωτικού (ΜΑΡΚ)</button>
-          <button onClick={testVoid} disabled={!lastGuid} className="bg-orange-600 text-white px-4 py-1.5 rounded text-sm disabled:opacity-40">Δοκιμή ακύρωσης (void / guid)</button>
-          {!lastMark && <span className="text-xs text-gray-500 self-center">Κάνε πρώτα «Δοκιμή έκδοσης ΑΠΥ».</span>}
+          <button onClick={testVoid} disabled={!lastGuid} className="bg-orange-600 text-white px-4 py-1.5 rounded text-sm disabled:opacity-40">Δοκιμή ακύρωσης (void)</button>
         </div>
-        <p className="text-xs text-gray-500 mt-1">Αν το Πιστωτικό (11.4) δεν περνά στο demo, η <b>ακύρωση (void)</b> με το guid είναι ο εναλλακτικός μηχανισμός ακύρωσης του παρόχου.</p>
       </div>
 
-      {/* ΚΑΡΤΑ: Πρόσθετα / παραμετρικά παραστατικά (ΤΠΥ, ΠΤΠΥ, κ.λπ.) */}
-      <div className="border rounded-lg p-4 mb-4 bg-white">
-        <div className="flex items-center mb-2">
-          <h4 className="font-semibold">Πρόσθετα παραστατικά</h4>
-          <span className="ml-2 text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded">παραμετρικά</span>
-          <button onClick={addExtra} className="ml-auto text-sm bg-slate-700 text-white px-3 py-1 rounded">+ Προσθήκη παραστατικού</button>
-        </div>
-        <p className="text-xs text-gray-500 mb-2">Όρισε επιπλέον τύπους (π.χ. ΤΠΥ, ΠΤΠΥ) με τις παραμέτρους myDATA. Η αυτόματη έκδοση χρησιμοποιεί το <b>ΑΠΥ</b> (πώληση) και το <b>Πιστωτικό</b> (ακύρωση)· τα πρόσθετα αποθηκεύονται για μελλοντική/χειροκίνητη χρήση.</p>
-        {extra.length === 0 && <div className="text-xs text-gray-400">Δεν έχουν οριστεί πρόσθετα παραστατικά.</div>}
-        {extra.map((e: any, i: number) => (
-          <div key={e.id ?? i} className="border rounded-lg p-3 mb-2 bg-slate-50">
-            <div className="flex items-center mb-2 gap-2">
-              <input className="inp flex-1" placeholder="Ονομασία (π.χ. ΤΠΥ)" value={e.label ?? ''} onChange={(ev) => updExtra(i, 'label', ev.target.value)} />
-              <button onClick={() => delExtra(i)} className="text-red-600 text-sm px-2">✕ Διαγραφή</button>
-            </div>
+      {/* MODAL: επεξεργασία παραστατικού */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setEditId(null)}>
+          <div className="bg-white rounded-xl p-5 w-[34rem] max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-bold text-lg mb-3">Επεξεργασία παραστατικού</h3>
             <div className="grid grid-cols-2 gap-3">
-              <L label="Τύπος παραστατικού"><Sel list={lookups?.invoiceTypes} value={e.invoiceTypeId} fallback={8} onChange={(v) => updExtra(i, 'invoiceTypeId', v)} /></L>
-              <L label="Σειρά"><input className="inp" value={e.series ?? ''} onChange={(ev) => updExtra(i, 'series', ev.target.value)} /></L>
-              <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={e.incomeCatId} fallback={2} onChange={(v) => updExtra(i, 'incomeCatId', v)} /></L>
-              <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={e.incomeValId} fallback={8} onChange={(v) => updExtra(i, 'incomeValId', v)} /></L>
-              <L label="Πληρωμή · Μετρητά (PaymentId)"><input className="inp" type="number" value={e.paymentCashId ?? 3} onChange={(ev) => updExtra(i, 'paymentCashId', Number(ev.target.value))} /></L>
-              <L label="Πληρωμή · Κάρτα (PaymentId)"><input className="inp" type="number" value={e.paymentCardId ?? 7} onChange={(ev) => updExtra(i, 'paymentCardId', Number(ev.target.value))} /></L>
-              <L label="Acquirer κάρτας"><Sel list={lookups?.acquirers} value={e.acquirerId} fallback={0} onChange={(v) => updExtra(i, 'acquirerId', v)} /></L>
-              <L label="Κατάσταση πληρωμής">
-                <select className="inp" value={e.paymentStatus ?? 2} onChange={(ev) => updExtra(i, 'paymentStatus', Number(ev.target.value))}>
-                  <option value={2}>2 — Αποδεκτή</option>
-                  <option value={1}>1 — Κανονική</option>
+              <L label="Ονομασία" full><input className="inp" value={editing.label ?? ''} onChange={(e) => updDoc(editing.id, 'label', e.target.value)} /></L>
+              <L label="Ρόλος">
+                <select className="inp" value={editing.role} onChange={(e) => updDoc(editing.id, 'role', e.target.value)}>
+                  <option value="sale">Πώληση (έκδοση)</option>
+                  <option value="credit">Πιστωτικό (ακύρωση)</option>
+                </select>
+              </L>
+              <L label="Ενεργό">
+                <select className="inp" value={editing.enabled !== false ? '1' : '0'} onChange={(e) => updDoc(editing.id, 'enabled', e.target.value === '1')}>
+                  <option value="1">Ναι</option><option value="0">Όχι</option>
+                </select>
+              </L>
+              <L label="Για">
+                <select className="inp" value={editing.for} onChange={(e) => updDoc(editing.id, 'for', e.target.value)}>
+                  <option value="service">Υπηρεσίες (εισιτήρια)</option>
+                  <option value="product">Εμπορικά προϊόντα</option>
+                </select>
+              </L>
+              <L label="Τύπος συναλλαγής">
+                <select className="inp" value={editing.counterpart} onChange={(e) => updDoc(editing.id, 'counterpart', e.target.value)}>
+                  <option value="retail">Λιανική (ΑΠΥ/ΑΛΠ)</option>
+                  <option value="invoice">Τιμολόγιο</option>
+                </select>
+              </L>
+              {editing.role === 'sale' && (
+                <L label="Πιστωτικό του">
+                  <select className="inp" value={editing.creditDocId ?? ''} onChange={(e) => updDoc(editing.id, 'creditDocId', e.target.value === '' ? null : Number(e.target.value))}>
+                    <option value="">— κανένα —</option>
+                    {creditDocs.map((c: any) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                  </select>
+                </L>
+              )}
+              <L label="Τύπος παραστατικού (myDATA)"><Sel list={lookups?.invoiceTypes} value={editing.invoiceTypeId} fallback={editing.role === 'credit' ? 22 : 20} onChange={(v) => updDoc(editing.id, 'invoiceTypeId', v)} /></L>
+              <L label="Σειρά"><input className="inp" value={editing.series ?? ''} onChange={(e) => updDoc(editing.id, 'series', e.target.value)} /></L>
+              <L label="Αρχικός ΑΑ (προαιρετικά)"><input className="inp" type="number" placeholder="κενό = συνέχεια αρίθμησης" value={editing.aaStart ?? ''} onChange={(e) => updDoc(editing.id, 'aaStart', e.target.value === '' ? '' : Number(e.target.value))} /></L>
+              <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={editing.incomeCatId} fallback={2} onChange={(v) => updDoc(editing.id, 'incomeCatId', v)} /></L>
+              <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={editing.incomeValId} fallback={8} onChange={(v) => updDoc(editing.id, 'incomeValId', v)} /></L>
+              <L label="Κατηγορία απαλλαγής ΦΠΑ (0% / δωρεάν)"><Sel list={lookups?.vatExemptions} value={editing.vatExemptionId} fallback={0} onChange={(v) => updDoc(editing.id, 'vatExemptionId', v)} /></L>
+              <L label="Πληρωμή · Μετρητά (PaymentId)"><input className="inp" type="number" value={editing.paymentCashId ?? 3} onChange={(e) => updDoc(editing.id, 'paymentCashId', Number(e.target.value))} /></L>
+              <L label="Πληρωμή · Κάρτα (PaymentId)"><input className="inp" type="number" value={editing.paymentCardId ?? 7} onChange={(e) => updDoc(editing.id, 'paymentCardId', Number(e.target.value))} /></L>
+              <L label="Acquirer κάρτας"><Sel list={lookups?.acquirers} value={editing.acquirerId} fallback={0} onChange={(v) => updDoc(editing.id, 'acquirerId', v)} /></L>
+              <L label="Διασύνδεση POS">
+                <select className="inp" value={editing.paymentStatus ?? 2} onChange={(e) => updDoc(editing.id, 'paymentStatus', Number(e.target.value))}>
+                  <option value={2}>Με Διασύνδεση</option>
+                  <option value={1}>Χωρίς Διασύνδεση</option>
                 </select>
               </L>
             </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => delDoc(editing.id)} className="text-red-600 px-3 py-1.5 text-sm">Διαγραφή</button>
+              <button onClick={() => setEditId(null)} className="bg-slate-800 text-white px-5 py-1.5 rounded text-sm">Κλείσιμο</button>
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
       {/* ΚΑΡΤΑ: Email απόδειξης (online) */}
       <div className="border rounded-lg p-4 mb-4 bg-white">
@@ -752,18 +831,56 @@ function AboutTab() {
           <a className="text-blue-600 font-medium" href="https://get.teamviewer.com/alphapc" target="_blank" rel="noreferrer">Ζήτα Online Τεχνική Υποστήριξη</a>
           <p className="text-[11px] text-gray-400 mt-1">Κατέβασε την εφαρμογή, εκτέλεσέ την και δώσε στο τεχνικό μας τμήμα το ID του συστήματός σου.</p>
         </div>
-        <p className="text-xs text-gray-400 mt-5">Alpha Ticket Management Simple — © 2026 Alpha ΠΛΗΡΟΦΟΡΙΚΗ ΑΕ. All Rights Reserved.</p>
+        <p className="text-xs text-gray-400 mt-5">Alpha Ticket Manager — © 2026 Alpha ΠΛΗΡΟΦΟΡΙΚΗ ΑΕ. All Rights Reserved.</p>
       </div>
     </div>
   );
 }
 
-const PLACEHOLDERS = ['venueName', 'vatNumber', 'address', 'cityLine', 'phone', 'email', 'title', 'subtitle', 'qty', 'unitPrice', 'lineTotal', 'total', 'vatRate', 'vatAmount', 'netValue', 'serial', 'datetime', 'paymentMethod', 'seat', 'show', 'customerName', 'customerVat', 'docType', 'series', 'aa', 'mark', 'legalNote'];
+/* ---------------- Φόρμα Απόδειξης Λιανικής (προϊόντα) ---------------- */
+function RetailFormSection() {
+  const [t, setT] = useState<any>(null);
+  const [showVat, setShowVat] = useState(true);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    api.get<any>('/api/retail-template').then((row) => {
+      setT(row);
+      let p: any = {}; try { p = JSON.parse(row.params ?? '{}'); } catch { /* default */ }
+      setShowVat(p.showVat !== false);
+    }).catch(() => {});
+  }, []);
+  if (!t) return null;
+  async function save() {
+    try { await api.put('/api/retail-template', { header: t.header, footer: t.footer, showVat }); setMsg('✓ Αποθηκεύτηκε'); }
+    catch (e) { setMsg((e as Error).message); }
+  }
+  const PH = ['venueName', 'vatNumber', 'taxOffice', 'address', 'cityLine', 'phone', 'docType', 'series', 'aa', 'datetime', 'customerName', 'customerVat', 'total', 'paymentMethod', 'mark'];
+  return (
+    <div className="mt-8 border-t pt-5 max-w-3xl">
+      <h3 className="font-bold mb-1">Φόρμα Απόδειξης Λιανικής (προϊόντα)</h3>
+      <p className="text-xs text-gray-500 mb-1">Επεξεργάζεσαι μόνο το <b>Header</b> (στοιχεία επιχείρησης) και το <b>Footer</b>. Τα <b>είδη, η ανάλυση ΦΠΑ και τα σύνολα</b> μπαίνουν αυτόματα. Το πλάτος (58/80mm) προσαρμόζεται αυτόματα στον εκτυπωτή.</p>
+      <Msg text={msg} />
+      <label className="text-sm block mb-2">Header (στοιχεία επιχείρησης)
+        <textarea className="inp" rows={5} value={t.header ?? ''} onChange={(e) => setT({ ...t, header: e.target.value })} /></label>
+      <label className="text-sm block mb-2">Footer (κλείσιμο)
+        <textarea className="inp" rows={3} value={t.footer ?? ''} onChange={(e) => setT({ ...t, footer: e.target.value })} /></label>
+      <div className="flex gap-4 items-center flex-wrap mb-2 text-sm">
+        <label className="flex items-center gap-1"><input type="checkbox" checked={showVat} onChange={(e) => setShowVat(e.target.checked)} /> Ανάλυση ΦΠΑ ανά συντελεστή</label>
+        <span className="text-xs text-gray-400">Ελληνικά / code page: από τις ρυθμίσεις εκτυπωτή της φόρμας εισιτηρίου.</span>
+      </div>
+      <div className="text-xs text-gray-500 mb-2">Διαθέσιμες παράμετροι: {PH.map((x) => `{{${x}}}`).join('  ')} · Το QR του myDATA μπαίνει αυτόματα όταν υπάρχει ΜΑΡΚ.</div>
+      <button onClick={save} className="bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση φόρμας λιανικής</button>
+    </div>
+  );
+}
+
+const PLACEHOLDERS = ['venueName', 'vatNumber', 'address', 'cityLine', 'phone', 'email', 'title', 'subtitle', 'qty', 'unitPrice', 'lineTotal', 'total', 'vatRate', 'vatAmount', 'netValue', 'serial', 'datetime', 'paymentMethod', 'seat', 'show', 'showDate', 'showTime', 'showDateTime', 'customerName', 'customerVat', 'docType', 'series', 'aa', 'mark', 'legalNote'];
 const SAMPLE: Record<string, string> = {
   venueName: 'ΜΟΥΣΕΙΟ', vatNumber: '123456789', address: 'Οδός 1', cityLine: '10675 Αθήνα', phone: '2100000000', email: 'info@x.gr',
   title: 'ΚΑΝΟΝΙΚΟ', subtitle: 'Γενική Είσοδος', qty: '1', unitPrice: '5.00', lineTotal: '5.00', total: '10.00', vatRate: '6',
   vatAmount: '0.28', netValue: '4.72',
   serial: '00000123', datetime: '01/06/2026 19:49', paymentMethod: 'ΜΕΤΡΗΤΑ', seat: 'A12', show: 'ΤΑΙΝΙΑ 1',
+  showDate: '06/06/2026', showTime: '21:00', showDateTime: '06/06/2026 21:00',
   customerName: 'ΠΑΠΑΔΟΠΟΥΛΟΣ Α.', customerVat: '044556677', docType: 'ΑΠΟΔΕΙΞΗ ΠΑΡΟΧΗΣ ΥΠΗΡΕΣΙΩΝ', series: 'ΑΠΥ', aa: '5',
   mark: '400001234567890',
   legalNote: 'Δεν αποτελεί φορολογικό παραστατικό',
@@ -925,9 +1042,30 @@ function TicketFormTab() {
 /* ---------------- Τύποι Εισιτηρίων ---------------- */
 const blank = (): Partial<TicketType> => ({
   title: '', subtitle: '', price: 0, default_qty: 1, vat_rate: 24,
-  default_payment: 'prompt', enabled: 1, sort_order: 0, color: '#f3f4f6',
+  default_payment: 'prompt', enabled: 1, sort_order: 0, color: '#f3f4f6', kind: 0,
 });
 const payText = (p?: string) => (p === 'cash' ? 'Μετρητά' : p === 'card' ? 'Κάρτα' : '— επιλογή —');
+// Έτοιμα εικονίδια (emoji) — υπηρεσίες + προϊόντα. Χωρίς φόρτωση εικόνων (~100).
+const ICONS = [
+  // Εισιτήρια / θεάματα / κινηματογράφος / θέατρο
+  '🎫', '🎟️', '🎬', '🎥', '📽️', '🎞️', '🍿', '🎭', '🎪', '🎨', '🖼️', '🎙️',
+  // Μουσική / συναυλίες / χορός
+  '🎵', '🎶', '🎤', '🎧', '🎷', '🎸', '🎹', '🎺', '🥁', '🎻', '🪕', '💃', '🕺', '🩰',
+  // Πολιτισμός / μουσεία / εκπαίδευση
+  '🏛️', '🗿', '🗽', '⛪', '🕌', '🎓', '📚', '🔬', '🔭', '🦖', '🦕', '🐉', '🌍', '🪐', '🧪',
+  // Αθλήματα
+  '⚽', '🏀', '🏐', '🏈', '⚾', '🎾', '🏉', '🥏', '🎱', '🏓', '🏸', '🥅', '🏒', '🏑', '🏏', '⛳', '🏹', '🥊', '🥋', '⛸️', '🎿', '🏂', '🏊', '🚴', '🏆', '🥇', '🏅',
+  // Παιχνίδια / διασκέδαση / λούνα παρκ
+  '🎮', '🕹️', '🎯', '🎲', '♟️', '🧩', '🎰', '🎡', '🎢', '🎠', '🤡', '🎈', '🎉', '🎊', '✨', '⭐', '🌟', '🎆', '🎇', '🎃', '🎄',
+  // Παιδικά / οικογένεια / πρόσβαση / πάρκινγκ / μεταφορές
+  '🧒', '👶', '👨‍👩‍👧', '♿', '🅿️', '🚌', '🚆', '🚢', '⛴️',
+  // Ποτά
+  '☕', '🍵', '🥤', '🧃', '🧋', '💧', '🍺', '🍻', '🍷', '🍸', '🍹', '🥂', '🧊',
+  // Φαγητό / σνακ / γλυκά
+  '🍔', '🍟', '🍕', '🌭', '🥨', '🥪', '🌮', '🍦', '🍨', '🍩', '🍪', '🧁', '🍰', '🎂', '🍫', '🍬', '🍭', '🥜',
+  // Λιανική / διάφορα
+  '🛍️', '🎁', '📦', '🏷️', '🔖', '🧾', '🛒', '💶', '⭐',
+];
 
 /* Αρίθμηση εισιτηρίων (venue-level) — ζει στους Τύπους Εισιτηρίων. */
 function NumberingSection() {
@@ -1044,6 +1182,12 @@ function TypesTab() {
             <div className="grid grid-cols-2 gap-3">
               <L label="Τίτλος" full><input className="inp" value={editing.title ?? ''} onChange={(e) => setEditing({ ...editing, title: e.target.value })} /></L>
               <L label="Υπότιτλος" full><input className="inp" value={editing.subtitle ?? ''} onChange={(e) => setEditing({ ...editing, subtitle: e.target.value })} /></L>
+              <L label="Τύπος">
+                <select className="inp" value={editing.kind ?? 0} onChange={(e) => setEditing({ ...editing, kind: Number(e.target.value) })}>
+                  <option value={0}>Υπηρεσία (εισιτήριο · ΑΠΥ)</option>
+                  <option value={1}>Εμπορικό προϊόν (λιανική · ΑΛΠ)</option>
+                </select>
+              </L>
               <L label="Τιμή (€)"><input type="number" step="0.01" className="inp" value={editing.price ?? 0} onChange={(e) => setEditing({ ...editing, price: Number(e.target.value) })} /></L>
               <L label="Προεπιλ. τεμάχια"><input type="number" className="inp" value={editing.default_qty ?? 1} onChange={(e) => setEditing({ ...editing, default_qty: Number(e.target.value) })} /></L>
               <L label="ΦΠΑ %"><input type="number" className="inp" value={editing.vat_rate ?? 24} onChange={(e) => setEditing({ ...editing, vat_rate: Number(e.target.value) })} /></L>
@@ -1059,6 +1203,17 @@ function TypesTab() {
               </L>
               <L label="Χρώμα"><input type="color" className="inp h-9" value={editing.color ?? '#f3f4f6'} onChange={(e) => setEditing({ ...editing, color: e.target.value })} /></L>
               <L label="Ενεργό"><input type="checkbox" checked={!!editing.enabled} onChange={(e) => setEditing({ ...editing, enabled: e.target.checked ? 1 : 0 })} className="w-5 h-5" /></L>
+              <div className="col-span-2">
+                <div className="text-sm mb-1">Εικονίδιο</div>
+                <div className="flex flex-wrap gap-1 max-h-44 overflow-y-auto border rounded p-2 bg-white">
+                  <button type="button" onClick={() => setEditing({ ...editing, icon: '' })}
+                    className={`w-9 h-9 rounded border text-xs ${!editing.icon ? 'ring-2 ring-slate-700 bg-slate-100' : 'bg-white'}`}>—</button>
+                  {ICONS.map((ic) => (
+                    <button type="button" key={ic} onClick={() => setEditing({ ...editing, icon: ic })}
+                      className={`w-9 h-9 rounded border text-lg leading-none ${editing.icon === ic ? 'ring-2 ring-slate-700 bg-slate-100' : 'bg-white'}`}>{ic}</button>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setEditing(null)} className="px-4 py-2 rounded border">Άκυρο</button>

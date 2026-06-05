@@ -9,6 +9,7 @@ interface DocRow {
   raw: string | null; guid: string | null; customer_name: string | null; customer_vat: string | null;
   show_date: string | null; show_time: string | null; ticket_count: number; ticket_ids: string | null;
   has_credit: number; qr_url: string | null; qr_provider: string | null; correlated_mark: string | null;
+  is_product: number; payment_method: string | null;
 }
 
 const eur = (n: any) => (Number(n) || 0).toFixed(2);
@@ -40,6 +41,22 @@ export default function Documents() {
 
   const creditable = (d: DocRow) => d.status === 'transmitted' && !d.has_credit && !!d.mark;
 
+  function exportCsv() {
+    const stLabel = (s: string) => s === 'transmitted' ? 'Διαβιβάστηκε' : s === 'cancelled' ? 'Ακυρώθηκε' : s === 'error' ? 'Σφάλμα' : s;
+    const head = ['#Πώληση', 'Σειρά/ΑΑ', 'Ρόλος', 'Κατάσταση', 'ΜΑΡΚ', 'Ημ.Έκδοσης', 'Θέαμα/Ημ.', 'Είδος', 'Πληρωμή', 'Εισιτήρια', 'Καθαρή', 'ΦΠΑ', 'Σύνολο', 'Πελάτης'];
+    const data = rows.map((d) => [
+      d.sale_id, `${d.series} ${d.aa}`, d.role === 'credit' ? 'Πιστωτικό' : 'Πώληση', stLabel(d.status), d.mark || '',
+      dt(d.created_at), d.show_date ? `${dmy(d.show_date)}${d.show_time ? ' ' + d.show_time : ''}` : '',
+      d.is_product ? 'Προϊόν' : 'Υπηρεσία', d.payment_method === 'card' ? 'Κάρτα' : d.payment_method === 'cash' ? 'Μετρητά' : '',
+      d.ticket_count, eur(d.net), eur(d.vat), eur(d.total), d.customer_name || 'ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ',
+    ]);
+    const text = [head, ...data].map((r) => r.map((c) => String(c ?? '').replace(/;/g, ',')).join(';')).join('\r\n');
+    const blob = new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `parastatika_${from || 'ola'}_${to || ''}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
+
   function toggle(id: number) {
     setSel((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
@@ -68,6 +85,17 @@ export default function Documents() {
     finally { setBusy(false); }
   }
 
+  async function purgeFailed() {
+    if (!window.confirm('Διαγραφή ΟΛΩΝ των αποτυχημένων παραστατικών (χωρίς ΜΑΡΚ) από τη βάση;\nΔεν αγγίζει διαβιβασμένα παραστατικά ούτε πωλήσεις/εισιτήρια.')) return;
+    setBusy(true); setMsg('Καθαρισμός αποτυχημένων…');
+    try {
+      const r = await api.post<{ deleted: number }>('/api/fiscal/documents/purge-failed', {});
+      setMsg(`✓ Διαγράφηκαν ${r.deleted} αποτυχημένα παραστατικά (χωρίς ΜΑΡΚ).`);
+      load();
+    } catch (e) { setMsg((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
   async function reprint(d: DocRow) {
     setBusy(true); setMsg('');
     try {
@@ -76,6 +104,12 @@ export default function Documents() {
         const res = await api.post<{ previews: string[] }>('/api/fiscal/documents/credit-print', { docId: d.id });
         if (res.previews?.length) printTickets(res.previews);
         else setMsg('Δεν βρέθηκαν στοιχεία πιστωτικού.');
+        return;
+      }
+      if (d.is_product) {
+        // Προϊόντα: εκτύπωση της ενοποιημένης Απόδειξης Λιανικής (όλα τα είδη μαζί), όχι εισιτηρίων.
+        const res = await api.post<{ previews: string[] }>('/api/fiscal/documents/retail-print', { saleId: d.sale_id });
+        if (res.previews?.length) printTickets(res.previews);
         return;
       }
       const ids = (d.ticket_ids ?? '').split(',').map((x) => Number(x)).filter(Boolean);
@@ -104,7 +138,6 @@ export default function Documents() {
       <div className="flex items-center mb-3 gap-2 flex-wrap">
         <h2 className="text-xl font-bold">Παραστατικά</h2>
         <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">myDATA · Πάροχος</span>
-        <button onClick={issuePending} disabled={busy} className="ml-auto text-sm bg-sky-600 text-white px-3 py-1.5 rounded disabled:opacity-50">Έκδοση εκκρεμών online ΑΠΥ</button>
       </div>
 
       {/* Φίλτρα */}
@@ -116,6 +149,7 @@ export default function Documents() {
             onKeyDown={(e) => e.key === 'Enter' && load()} placeholder="π.χ. Παπαδόπουλος, 5, 400000…" />
         </label>
         <button onClick={load} disabled={busy} className="bg-slate-700 text-white px-4 py-2 rounded text-sm">Αναζήτηση</button>
+        <button onClick={exportCsv} disabled={busy || rows.length === 0} className="bg-emerald-600 text-white px-4 py-2 rounded text-sm disabled:opacity-40">Εξαγωγή CSV</button>
         {(from || to || q) && <button onClick={() => { setFrom(''); setTo(''); setQ(''); setTimeout(load, 0); }} className="text-sm text-gray-500 underline">Καθαρισμός</button>}
       </div>
 
@@ -127,8 +161,17 @@ export default function Documents() {
           className="bg-red-600 text-white px-4 py-1.5 rounded text-sm disabled:opacity-40">
           Έκδοση Πιστωτικού ({sel.size})
         </button>
-        <span className="text-xs text-gray-500">Επίλεξε παραστατικά με ✓ για έκδοση πιστωτικού (αντιλογισμός myDATA).</span>
+        <button onClick={issuePending} disabled={busy}
+          className="bg-sky-600 text-white px-4 py-1.5 rounded text-sm disabled:opacity-50">
+          Έκδοση εκκρεμών online ΑΠΥ
+        </button>
+        <button onClick={purgeFailed} disabled={busy}
+          className="ml-auto bg-red-50 text-red-700 border border-red-200 px-3 py-1.5 rounded text-sm disabled:opacity-50"
+          title="Διαγράφει από τη βάση τα αποτυχημένα παραστατικά (χωρίς ΜΑΡΚ)">
+          🗑 Καθαρισμός αποτυχημένων
+        </button>
       </div>
+      <div className="text-xs text-gray-500 mb-2">Επίλεξε παραστατικά με ✓ για έκδοση πιστωτικού (αντιλογισμός myDATA).</div>
 
       <div className="overflow-x-auto border rounded-lg bg-white">
         <table className="w-full text-sm whitespace-nowrap">
@@ -146,6 +189,7 @@ export default function Documents() {
               <th className="p-2 text-right">Σύνολο</th>
               <th className="p-2 text-right">Καθαρή</th>
               <th className="p-2 text-right">ΦΠΑ</th>
+              <th className="p-2">Πληρωμή</th>
               <th className="p-2">Πελάτης</th>
               <th className="p-2"></th>
             </tr>
@@ -176,14 +220,15 @@ export default function Documents() {
                 <td className="p-2 text-right font-semibold">{eur(d.total)}</td>
                 <td className="p-2 text-right">{eur(d.net)}</td>
                 <td className="p-2 text-right">{eur(d.vat)}</td>
-                <td className="p-2">{d.customer_name || <span className="text-gray-400">Λιανική</span>}</td>
+                <td className="p-2">{d.payment_method === 'card' ? 'Κάρτα' : d.payment_method === 'cash' ? 'Μετρητά' : '—'}</td>
+                <td className="p-2">{d.customer_name || <span className="text-gray-400">ΠΕΛΑΤΗΣ ΛΙΑΝΙΚΗΣ</span>}</td>
                 <td className="p-2 text-right">
                   <button onClick={() => reprint(d)} className="text-blue-600 mr-2">Επανεκτύπωση</button>
                   <button onClick={() => setRaw(d.raw ?? '(κενό)')} className="text-slate-500">απάντηση</button>
                 </td>
               </tr>
             ))}
-            {rows.length === 0 && !busy && <tr><td colSpan={14} className="p-4 text-gray-400 text-center">Κανένα παραστατικό.</td></tr>}
+            {rows.length === 0 && !busy && <tr><td colSpan={15} className="p-4 text-gray-400 text-center">Κανένα παραστατικό.</td></tr>}
           </tbody>
         </table>
       </div>

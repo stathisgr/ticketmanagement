@@ -9,7 +9,7 @@ import Halls from './pages/Halls';
 import Shows from './pages/Shows';
 import Reports from './pages/Reports';
 import Customers from './pages/Customers';
-import CheckIn from './pages/CheckIn';
+import CheckIn from './pages/Checkin';
 import Online from './pages/Online';
 import Documents from './pages/Documents';
 
@@ -81,7 +81,6 @@ export default function App() {
     { id: 'reports', label: 'Αναφορές', show: true, managerOnly: true },
     { id: 'customers', label: 'Πελάτες', show: true, managerOnly: true },
     { id: 'shows', label: 'Πρόγραμμα', show: showHalls, managerOnly: true },
-    { id: 'halls', label: 'Αίθουσες', show: showHalls, managerOnly: true },
     { id: 'online', label: 'Online', show: showHalls, managerOnly: true },
     { id: 'documents', label: 'Παραστατικά', show: providerMode, managerOnly: true },
     { id: 'settings', label: 'Ρυθμίσεις', show: true, managerOnly: true },
