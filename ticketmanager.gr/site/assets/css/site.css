@@ -123,7 +123,7 @@ p { margin: 0 0 1rem; }
 /* Footer */
 .site-footer { background: #08203a; color: #aac3df; padding: 48px 0 28px; }
 .footer-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 30px; }
-.site-footer h4 { color: #fff; font-size: 1rem; margin: 0 0 .6rem; }
+.site-footer h2, .site-footer .ft-h { color: #fff; font-size: 1rem; margin: 0 0 .6rem; }
 .site-footer a { color: #aac3df; }
 .site-footer a:hover { color: #fff; }
 .footer-bottom { border-top: 1px solid rgba(255,255,255,.12); margin-top: 30px; padding-top: 18px; font-size: .85rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
