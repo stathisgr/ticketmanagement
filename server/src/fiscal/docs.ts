@@ -149,29 +149,17 @@ function serviceSaleSeries(exclude: Set<string>): string | null {
   } catch { return null; }
 }
 
-// Ελληνικά↔Λατινικά ομόγραφα (ίδια όψη, διαφορετικός κωδικός) — π.χ. ελληνικό Υ vs λατινικό Y.
-const HOMOGLYPH: Record<string, string> = {
-  Α: 'A', Β: 'B', Ε: 'E', Ζ: 'Z', Η: 'H', Ι: 'I', Κ: 'K', Μ: 'M', Ν: 'N', Ο: 'O', Ρ: 'P', Τ: 'T', Υ: 'Y', Χ: 'X',
+// Λατινικά ομόγλυφα → ΕΛΛΗΝΙΚΑ. Η σειρά είναι ΠΑΝΤΑ με ελληνικούς χαρακτήρες (π.χ. «ΑΠΥ» με ελληνικό Υ),
+// ΠΟΤΕ λατινικό Y/A/P κ.λπ. Έτσι υπάρχει ΜΙΑ μόνο γραφή ανά σειρά και ο αύξων (MAX αα ανά σειρά)
+// δεν μηδενίζει ούτε διπλασιάζεται λόγω οπτικά ίδιων αλλά διαφορετικών χαρακτήρων.
+const LAT2GR: Record<string, string> = {
+  A: 'Α', B: 'Β', E: 'Ε', Z: 'Ζ', H: 'Η', I: 'Ι', K: 'Κ', M: 'Μ', N: 'Ν', O: 'Ο', P: 'Ρ', T: 'Τ', Y: 'Υ', X: 'Χ',
 };
-const normSeries = (s: string): string => [...String(s || '')].map((c) => HOMOGLYPH[c] || c).join('').toUpperCase();
+const toGreekSeries = (s: string): string => [...String(s || '')].map((c) => LAT2GR[c.toUpperCase()] || c).join('');
 
-/**
- * Διορθώνει «ομόγραφες» σειρές: αν μια σειρά (π.χ. «ΑΠΥ» με ελληνικό Υ) είναι οπτικά ίδια με μια
- * σειρά που ΗΔΗ υπάρχει στη βάση με άλλη γραφή (π.χ. «ΑΠY» με λατινικό Y), υιοθετεί την υπάρχουσα,
- * ώστε η αρίθμηση (MAX αα ανά σειρά) να ΣΥΝΕΧΙΖΕΤΑΙ και να μη μηδενίζει / συγκρούεται με τον πάροχο.
- */
+/** Κανονικοποιεί κάθε σειρά σε ελληνικούς χαρακτήρες (μία ενιαία γραφή ανά σειρά). */
 function repairSeries(list: FiscalDoc[]): FiscalDoc[] {
-  let dbSeries: string[] = [];
-  try {
-    dbSeries = (db.prepare("SELECT DISTINCT series FROM fiscal_documents WHERE series IS NOT NULL AND series <> ''").all() as any[])
-      .map((r) => r.series);
-  } catch { dbSeries = []; }
-  for (const d of list) {
-    if (!d.series) continue;
-    const dn = normSeries(d.series);
-    const existing = dbSeries.find((s) => s !== d.series && normSeries(s) === dn);
-    if (existing) d.series = existing; // υιοθέτησε την υπάρχουσα γραφή
-  }
+  for (const d of list) if (d.series) d.series = toGreekSeries(d.series);
   return list;
 }
 

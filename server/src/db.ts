@@ -130,6 +130,20 @@ export function migrate(): void {
                ELSE 'ticket_only' END
              WHERE issue_mode IS NULL`);
   } catch { /* ignore */ }
+
+  // Κανονικοποίηση σειρών παραστατικών σε ΕΛΛΗΝΙΚΟΥΣ χαρακτήρες (λατινικά ομόγλυφα → ελληνικά),
+  // ώστε να υπάρχει ΜΙΑ ενιαία σειρά (π.χ. «ΑΠΥ» πάντα με ελληνικό Υ) και η αρίθμηση να συνεχίζει
+  // χωρίς μηδενισμό/διπλασιασμό. Idempotent — αν είναι ήδη ελληνικά, δεν αλλάζει κάτι.
+  try {
+    const L2G: Record<string, string> = { A: 'Α', B: 'Β', E: 'Ε', Z: 'Ζ', H: 'Η', I: 'Ι', K: 'Κ', M: 'Μ', N: 'Ν', O: 'Ο', P: 'Ρ', T: 'Τ', Y: 'Υ', X: 'Χ' };
+    const gr = (s: string) => [...String(s || '')].map((ch) => L2G[ch.toUpperCase()] || ch).join('');
+    for (const [table, col] of [['fiscal_documents', 'series'], ['tickets', 'fiscal_series']] as const) {
+      let rows: any[] = [];
+      try { rows = db.prepare(`SELECT DISTINCT ${col} AS v FROM ${table} WHERE ${col} IS NOT NULL AND ${col} <> ''`).all() as any[]; } catch { rows = []; }
+      for (const r of rows) { const g = gr(r.v); if (g !== r.v) { try { db.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(g, r.v); } catch { /* ignore */ } } }
+    }
+  } catch { /* ignore */ }
+
   ensureDefaultUsers();
 }
 

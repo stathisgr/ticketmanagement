@@ -54,12 +54,15 @@ function OnlineTab() {
   const [busy, setBusy] = useState(false);
   const [posProvider, setPosProvider] = useState<'none' | 'viva'>('none');
   const [posCfg, setPosCfg] = useState<any>({ env: 'demo' });
+  const [email, setEmailState] = useState<any>({});
+  const setEmail = (k: string, v: any) => setEmailState((e: any) => ({ ...e, [k]: v }));
 
   useEffect(() => {
     api.get<OnlineCfg>('/api/online/config').then(setCfg).catch(() => {});
     api.get<FiscalConfig>('/api/fiscal').then((fc) => {
       setPosProvider((fc.pos_provider as any) ?? 'none');
       try { setPosCfg({ env: 'demo', ...(fc.pos_config ? JSON.parse(fc.pos_config) : {}) }); } catch { setPosCfg({ env: 'demo' }); }
+      try { const conf = fc.config ? JSON.parse(fc.config) : {}; setEmailState(conf.email ?? {}); } catch { setEmailState({}); }
     }).catch(() => {});
   }, []);
 
@@ -73,7 +76,6 @@ function OnlineTab() {
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   }
 
-  // POS/Κάρτες — αποθηκεύεται ανεξάρτητα (merge) στο fiscal_config.
   async function savePos() {
     setMsg('');
     try { await api.put('/api/fiscal', { pos_provider: posProvider, pos_config: posCfg }); setMsg('✓ Αποθηκεύτηκε (POS)'); }
@@ -91,33 +93,35 @@ function OnlineTab() {
       setMsg(`✓ Δοκιμαστική πληρωμή 1,00€ (orderCode ${r.orderCode}) — άνοιξε το checkout.`);
     } catch (e) { setMsg((e as Error).message); }
   }
+  async function saveEmail() {
+    setMsg('');
+    try {
+      const fc = await api.get<FiscalConfig>('/api/fiscal');
+      let conf: any = {}; try { conf = fc.config ? JSON.parse(fc.config) : {}; } catch { /* */ }
+      conf.email = email;
+      await api.put('/api/fiscal', { config: conf });
+      setMsg('✓ Αποθηκεύτηκε (Email)');
+    } catch (e) { setMsg((e as Error).message); }
+  }
+  async function testEmail() {
+    const to = window.prompt('Δοκιμαστική αποστολή email σε:');
+    if (!to) return;
+    setMsg('Αποθήκευση + αποστολή δοκιμαστικού email…');
+    try {
+      const fc = await api.get<FiscalConfig>('/api/fiscal');
+      let conf: any = {}; try { conf = fc.config ? JSON.parse(fc.config) : {}; } catch { /* */ }
+      conf.email = email;
+      await api.put('/api/fiscal', { config: conf });
+      const r = await api.post<{ ok: boolean; error?: string }>('/api/fiscal/provider/test-email', { to });
+      setMsg(r.ok ? `✓ Στάλθηκε δοκιμαστικό email στο ${to}` : '✗ ' + (r.error ?? 'Αποτυχία αποστολής'));
+    } catch (e) { setMsg((e as Error).message); }
+  }
 
   return (
     <div className="max-w-2xl">
       <Msg text={msg} />
-      <h3 className="font-semibold mb-1">Online Cloud βάση</h3>
-      <p className="text-xs text-gray-500 mb-3">Σύνδεση με την cloud βάση των online κρατήσεων. Το κλειδί μένει μόνο τοπικά στον server και δεν φεύγει στον browser του πελάτη.</p>
-      <L label="Διεύθυνση Cloud (URL)">
-        <input className="inp" placeholder="https://..." value={cfg.supabase_url} onChange={(e) => setCfg({ ...cfg, supabase_url: e.target.value })} />
-      </L>
-      <L label={`Κλειδί υπηρεσίας (service key)${cfg.has_key ? ' — αποθηκευμένο, άφησέ το κενό για να μην αλλάξει' : ''}`}>
-        <input type="password" className="inp" placeholder={cfg.has_key ? '•••••••• αποθηκευμένο' : 'service key'} value={keyInput} onChange={(e) => setKeyInput(e.target.value)} />
-      </L>
-      <div className="grid grid-cols-3 gap-3 mt-2">
-        <L label="Λεπτά πριν το θέαμα (κλείσιμο online)">
-          <input type="number" min={0} className="inp" value={cfg.sync_minutes_before} onChange={(e) => setCfg({ ...cfg, sync_minutes_before: Number(e.target.value) })} />
-        </L>
-        <L label="Αυτόματος συγχρονισμός κάθε (λεπτά, 0=ανενεργό)">
-          <input type="number" min={0} className="inp" value={cfg.auto_sync_minutes ?? 0} onChange={(e) => setCfg({ ...cfg, auto_sync_minutes: Number(e.target.value) })} />
-        </L>
-        <label className="flex items-end gap-2 text-sm pb-2">
-          <input type="checkbox" checked={cfg.enabled} onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })} /> Ενεργό
-        </label>
-      </div>
-      <p className="text-xs text-gray-500 mt-1">Ο αυτόματος συγχρονισμός τρέχει στον server (κατέβασμα online πωλήσεων + έκδοση παραστατικών) <b>χωρίς να χρειάζεται συνδεδεμένος χρήστης</b>. Απαιτεί ενεργή σύνδεση cloud.</p>
-      <button onClick={save} disabled={busy} className="mt-3 bg-slate-800 text-white px-5 py-2 rounded disabled:opacity-40">Αποθήκευση</button>
 
-      <hr className="my-5" />
+      {/* 1) Σύνδεση POS / Κάρτες */}
       <h3 className="font-semibold mb-2">Σύνδεση POS / Κάρτες</h3>
       <L label="Πάροχος καρτών (POS)">
         <select className="inp" value={posProvider} onChange={(e) => setPosProvider(e.target.value as any)}>
@@ -146,7 +150,7 @@ function OnlineTab() {
           </div>
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-1">
             ⚠️ <b>Source code ΤΑΜΕΙΟΥ</b>: η πηγή Viva για τις πληρωμές στο ταμείο (π.χ. ο κωδικός χώρου Physical Payments). Άφησέ το <b>κενό</b> για την προεπιλεγμένη πηγή (web2/success – δεν κάνει redirect στο online). Αυτό χρησιμοποιεί η εφαρμογή για το ταμείο.<br />
-            <b>Source code ONLINE</b>: μόνο πληροφοριακό εδώ — το online χρησιμοποιεί τη δική του πηγή πληρωμής (με Success URL → booking site) που ορίζεται στο cloud, όχι από αυτό το πεδίο. Έτσι ξεχωρίζουν τα δύο κανάλια πληρωμών.
+            <b>Source code ONLINE</b>: μόνο πληροφοριακό εδώ — το online χρησιμοποιεί τη δική του πηγή πληρωμής (με Success URL → booking site) που ορίζεται στο cloud, όχι από αυτό το πεδίο.
           </p>
           <div className="flex gap-2 mt-3">
             <button onClick={testPos} className="bg-blue-600 text-white px-4 py-1.5 rounded">Δοκιμή σύνδεσης</button>
@@ -157,11 +161,67 @@ function OnlineTab() {
       )}
       <div><button onClick={savePos} className="mt-3 bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση POS</button></div>
 
+      <hr className="my-5" />
+      {/* 2) Email (αποδείξεις online & ειδοποιήσεις) */}
+      <h3 className="font-semibold mb-2">Email (αποδείξεις online &amp; ειδοποιήσεις)</h3>
+      <p className="text-xs text-gray-500 mb-2">Στις online πωλήσεις στέλνεται email με σύνδεσμο προς την επίσημη απόδειξη (ΑΠΥ/ΜΑΡΚ). Διάλεξε <b>Πάροχο</b>: <b>Resend</b> (API key) ή <b>Microsoft 365</b> (Graph — app registration με Application permission <i>Mail.Send</i> &amp; admin consent· το «Αποστολέας/From» πρέπει να είναι το mailbox, π.χ. noreply@domain.gr).</p>
+      <div className="grid grid-cols-2 gap-3">
+        <L label="Ενεργό">
+          <select className="inp" value={email.enabled ? '1' : '0'} onChange={(e) => setEmail('enabled', e.target.value === '1')}>
+            <option value="0">Όχι</option><option value="1">Ναι</option>
+          </select>
+        </L>
+        <L label="Πάροχος">
+          <select className="inp" value={email.provider ?? 'resend'} onChange={(e) => setEmail('provider', e.target.value)}>
+            <option value="resend">Resend</option>
+            <option value="graph">Microsoft 365 (Graph)</option>
+          </select>
+        </L>
+        <L label="Αποστολέας (From)"><input className="inp" placeholder={(email.provider === 'graph') ? 'noreply@domain.gr (mailbox)' : 'Όνομα <noreply@domain.gr>'} value={email.from ?? ''} onChange={(e) => setEmail('from', e.target.value)} /></L>
+        <L label="Reply-To (προαιρετικό)"><input className="inp" placeholder="info@domain.gr" value={email.replyTo ?? ''} onChange={(e) => setEmail('replyTo', e.target.value)} /></L>
+        {(email.provider ?? 'resend') === 'graph' ? (
+          <>
+            <L label="Tenant ID (MS 365)"><input className="inp" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={email.tenantId ?? ''} onChange={(e) => setEmail('tenantId', e.target.value)} /></L>
+            <L label="Client ID"><input className="inp" placeholder="application (client) id" value={email.clientId ?? ''} onChange={(e) => setEmail('clientId', e.target.value)} /></L>
+            <L label="Client Secret"><input type="password" className="inp" value={email.clientSecret ?? ''} onChange={(e) => setEmail('clientSecret', e.target.value)} /></L>
+          </>
+        ) : (
+          <L label="Resend API key"><input type="password" className="inp" placeholder="••••••••" value={email.resendKey ?? ''} onChange={(e) => setEmail('resendKey', e.target.value)} /></L>
+        )}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <button onClick={saveEmail} className="bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση Email</button>
+        <button onClick={testEmail} className="bg-sky-600 text-white px-4 py-1.5 rounded">Δοκιμαστικό email</button>
+      </div>
+
+      <hr className="my-5" />
+      {/* 3) Online Cloud βάση */}
+      <h3 className="font-semibold mb-1">Online Cloud βάση</h3>
+      <p className="text-xs text-gray-500 mb-3">Σύνδεση με την cloud βάση των online κρατήσεων. Το κλειδί μένει μόνο τοπικά στον server και δεν φεύγει στον browser του πελάτη.</p>
+      <L label="Διεύθυνση Cloud (URL)">
+        <input className="inp" placeholder="https://..." value={cfg.supabase_url} onChange={(e) => setCfg({ ...cfg, supabase_url: e.target.value })} />
+      </L>
+      <L label={`Κλειδί υπηρεσίας (service key)${cfg.has_key ? ' — αποθηκευμένο, άφησέ το κενό για να μην αλλάξει' : ''}`}>
+        <input type="password" className="inp" placeholder={cfg.has_key ? '•••••••• αποθηκευμένο' : 'service key'} value={keyInput} onChange={(e) => setKeyInput(e.target.value)} />
+      </L>
+      <div className="grid grid-cols-3 gap-3 mt-2">
+        <L label="Λεπτά πριν το θέαμα (κλείσιμο online)">
+          <input type="number" min={0} className="inp" value={cfg.sync_minutes_before} onChange={(e) => setCfg({ ...cfg, sync_minutes_before: Number(e.target.value) })} />
+        </L>
+        <L label="Αυτόματος συγχρονισμός κάθε (λεπτά, 0=ανενεργό)">
+          <input type="number" min={0} className="inp" value={cfg.auto_sync_minutes ?? 0} onChange={(e) => setCfg({ ...cfg, auto_sync_minutes: Number(e.target.value) })} />
+        </L>
+        <label className="flex items-end gap-2 text-sm pb-2">
+          <input type="checkbox" checked={cfg.enabled} onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })} /> Ενεργό
+        </label>
+      </div>
+      <p className="text-xs text-gray-500 mt-1">Ο αυτόματος συγχρονισμός τρέχει στον server (κατέβασμα online πωλήσεων + έκδοση παραστατικών) <b>χωρίς να χρειάζεται συνδεδεμένος χρήστης</b>. Απαιτεί ενεργή σύνδεση cloud.</p>
+      <button onClick={save} disabled={busy} className="mt-3 bg-slate-800 text-white px-5 py-2 rounded disabled:opacity-40">Αποθήκευση Cloud</button>
+
       <p className="text-sm text-gray-500 mt-4"><b>Πάροχος ηλεκτρονικής έκδοσης (RapidSign)</b> παραμένει στην καρτέλα «Εκτυπωτές» (δεμένος με τις φορολογικές ρυθμίσεις).</p>
     </div>
   );
 }
-
 /* ---------------- Επιχείρηση ---------------- */
 function BusinessTab({ onSaved }: { onSaved?: () => void }) {
   const [v, setV] = useState<Venue | null>(null);
@@ -759,7 +819,7 @@ function DocumentsTab() {
               )}
               <L label="Τύπος παραστατικού (myDATA)"><Sel list={lookups?.invoiceTypes} value={editing.invoiceTypeId} fallback={editing.role === 'credit' ? 22 : 20} onChange={(v) => updDoc(editing.id, 'invoiceTypeId', v)} /></L>
               <L label="Σειρά"><input className="inp" value={editing.series ?? ''} onChange={(e) => updDoc(editing.id, 'series', e.target.value)} /></L>
-              <L label="Αρχικός ΑΑ (προαιρετικά)"><input className="inp" type="number" placeholder="κενό = συνέχεια αρίθμησης" value={editing.aaStart ?? ''} onChange={(e) => updDoc(editing.id, 'aaStart', e.target.value === '' ? '' : Number(e.target.value))} /></L>
+              <L label="Τρέχον ΑΑ (αυτόματο — ρυθμιζόμενο)"><input className="inp" type="number" placeholder="κενό = συνέχεια αρίθμησης" value={editing.aaStart ?? ''} onChange={(e) => updDoc(editing.id, 'aaStart', e.target.value === '' ? '' : Number(e.target.value))} /><small style={{ color: '#6b7280', display: 'block', marginTop: 2 }}>Ενημερώνεται αυτόματα με τον τελευταίο αα που εκδόθηκε. Άλλαξέ το για να ορίσεις από πού θα συνεχίσει η αρίθμηση.</small></L>
               <L label="Κατηγορία εσόδου (myDATA)"><Sel list={lookups?.incomeCategories} value={editing.incomeCatId} fallback={2} onChange={(v) => updDoc(editing.id, 'incomeCatId', v)} /></L>
               <L label="Χαρακτηρισμός εσόδου (E3)"><Sel list={lookups?.incomeValues} value={editing.incomeValId} fallback={8} onChange={(v) => updDoc(editing.id, 'incomeValId', v)} /></L>
               <L label="Κατηγορία απαλλαγής ΦΠΑ (0% / δωρεάν)"><Sel list={lookups?.vatExemptions} value={editing.vatExemptionId} fallback={0} onChange={(v) => updDoc(editing.id, 'vatExemptionId', v)} /></L>
@@ -780,42 +840,6 @@ function DocumentsTab() {
           </div>
         </div>
       )}
-
-      {/* ΚΑΡΤΑ: Email απόδειξης (online) */}
-      <div className="border rounded-lg p-4 mb-4 bg-white">
-        <div className="flex items-center mb-2">
-          <h4 className="font-semibold">Email απόδειξης online πωλήσεων</h4>
-          <span className="ml-2 text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded">2ο email με σύνδεσμο ΑΠΥ</span>
-        </div>
-        <p className="text-xs text-gray-500 mb-2">Για τις <b>online πωλήσεις</b> (όλες με κάρτα), κατά τον συγχρονισμό εκδίδεται ΑΠΥ στον πάροχο και στέλνεται ένα 2ο email στον πελάτη με <b>σύνδεσμο προς το επίσημο PDF</b> της απόδειξης (ΜΑΡΚ). Διάλεξε <b>Πάροχο</b>: <b>Resend</b> (API key) ή <b>Microsoft 365</b> (Graph — app registration με Application permission <i>Mail.Send</i> &amp; admin consent· το «Αποστολέας/From» πρέπει να είναι το mailbox, π.χ. noreply@domain.gr).</p>
-        <div className="grid grid-cols-2 gap-3">
-          <L label="Ενεργό">
-            <select className="inp" value={email.enabled ? '1' : '0'} onChange={(e) => setEmail('enabled', e.target.value === '1')}>
-              <option value="0">Όχι</option><option value="1">Ναι</option>
-            </select>
-          </L>
-          <L label="Πάροχος">
-            <select className="inp" value={email.provider ?? 'resend'} onChange={(e) => setEmail('provider', e.target.value)}>
-              <option value="resend">Resend</option>
-              <option value="graph">Microsoft 365 (Graph)</option>
-            </select>
-          </L>
-          <L label="Αποστολέας (From)"><input className="inp" placeholder={(email.provider === 'graph') ? 'noreply@domain.gr (mailbox)' : 'Όνομα <noreply@domain.gr>'} value={email.from ?? ''} onChange={(e) => setEmail('from', e.target.value)} /></L>
-          <L label="Reply-To (προαιρετικό)"><input className="inp" placeholder="info@domain.gr" value={email.replyTo ?? ''} onChange={(e) => setEmail('replyTo', e.target.value)} /></L>
-          {(email.provider ?? 'resend') === 'graph' ? (
-            <>
-              <L label="Tenant ID (MS 365)"><input className="inp" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={email.tenantId ?? ''} onChange={(e) => setEmail('tenantId', e.target.value)} /></L>
-              <L label="Client ID"><input className="inp" placeholder="application (client) id" value={email.clientId ?? ''} onChange={(e) => setEmail('clientId', e.target.value)} /></L>
-              <L label="Client Secret"><input className="inp" type="password" placeholder="••••••••" value={email.clientSecret ?? ''} onChange={(e) => setEmail('clientSecret', e.target.value)} /></L>
-            </>
-          ) : (
-            <L label="Resend API key"><input className="inp" type="password" placeholder="••••••••" value={email.resendKey ?? ''} onChange={(e) => setEmail('resendKey', e.target.value)} /></L>
-          )}
-        </div>
-        <div className="flex gap-2 mt-3">
-          <button onClick={testEmail} className="bg-sky-600 text-white px-4 py-1.5 rounded text-sm">Δοκιμαστικό email</button>
-        </div>
-      </div>
 
       <button onClick={save} className="bg-slate-800 text-white px-5 py-2 rounded">Αποθήκευση παραστατικών</button>
 

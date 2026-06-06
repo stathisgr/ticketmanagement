@@ -40,6 +40,27 @@ function providerCfg(): { provider: RapidSignProvider; cfg: any; venue: any } | 
   return { provider, cfg, venue };
 }
 
+/**
+ * Αποθηκεύει το ΤΡΕΧΟΝ αα (αυτό που μόλις εκδόθηκε) πίσω στο config του παραστατικού (πεδίο aaStart),
+ * ώστε να φαίνεται ΚΑΙ να ρυθμίζεται από τις Ρυθμίσεις → Παραστατικά. Η μηχανή έκδοσης χρησιμοποιεί
+ * το aaStart ως «πάτωμα» (αν είναι μεγαλύτερο του MAX της σειράς, ξεκινά από εκεί), οπότε αν ο χρήστης
+ * το ανεβάσει χειροκίνητα, η αρίθμηση συνεχίζει από την τιμή που όρισε.
+ */
+function persistDocAa(docId: any, aa: number): void {
+  if (docId == null || !Number.isFinite(aa)) return;
+  try {
+    const row = db.prepare('SELECT config FROM fiscal_config WHERE id = 1').get() as any;
+    let c: any = {}; try { c = JSON.parse(row?.config ?? '{}'); } catch { return; }
+    if (c?.docs?.list && Array.isArray(c.docs.list)) {
+      const d = c.docs.list.find((x: any) => String(x.id) === String(docId));
+      if (d) {
+        d.aaStart = aa;
+        db.prepare('UPDATE fiscal_config SET config = ? WHERE id = 1').run(JSON.stringify(c));
+      }
+    }
+  } catch { /* μη-κρίσιμο: αν αποτύχει, η αρίθμηση συνεχίζει από το MAX της βάσης */ }
+}
+
 function issuerOf(cfg: any, venue: any, branch = 0): IssueParty {
   return {
     vatNumber: cfg.issuerVat || venue?.vat_number || '', countryId: 87, branch,
@@ -151,7 +172,7 @@ export async function issueForSale(saleId: number, opts?: { vivaTxId?: string })
     lines,
     payments: [pay],
   });
-    const dupAa = !res.ok && /\b1114\b|έχει λάβει ήδη|έχει λάβει Μ\.?ΑΡ\.?Κ/i.test(String(res.error ?? '') + JSON.stringify(res.raw ?? ''));
+    const dupAa = !res.ok && /\b1114\b|\b1196\b|έχει λάβει ήδη|έχει λάβει Μ\.?ΑΡ\.?Κ|ήδη αποθηκευτεί/i.test(String(res.error ?? '') + JSON.stringify(res.raw ?? ''));
     if (!dupAa) break;
     aaNum += 1; // ο πάροχος έχει ήδη αυτό το αα — δοκίμασε το επόμενο
   }
@@ -170,6 +191,8 @@ export async function issueForSale(saleId: number, opts?: { vivaTxId?: string })
           WHERE sale_item_id IN (SELECT id FROM sale_items WHERE sale_id = ?)`
       ).run(res.mark ?? null, series, String(aaNum), res.qrCodeMyData ?? null, docType, saleId);
     } catch { /* οι στήλες ίσως δεν υπάρχουν σε πολύ παλιά βάση */ }
+    // Αποθήκευση του τρέχοντος αα στο config του παραστατικού (ορατό/ρυθμιζόμενο από τις Ρυθμίσεις).
+    persistDocAa(apy.id, aaNum);
     return { ok: true, mark: res.mark, qrUrl: res.qrCodeMyData, providerUrl: res.qrCode, series, aa: String(aaNum), docType, isNew: true };
   }
   // Αποτυχία ή κενό ΜΑΡΚ → αποθήκευση ΟΛΟΥ του raw (request + response) για διάγνωση.
@@ -206,7 +229,7 @@ export async function creditForSale(saleId: number, _reason: string, amount?: { 
   const crSeries = cr.series || 'ΠΑΠΥ';
   const crMaxNext = ((db.prepare("SELECT MAX(CAST(aa AS INTEGER)) AS m FROM fiscal_documents WHERE role = 'credit' AND series = ? AND status = 'transmitted'").get(crSeries) as any).m || 0) + 1;
   const crStart = Number(cr.aaStart);
-  const crAa = Number.isFinite(crStart) && crStart > crMaxNext ? crStart : crMaxNext;
+  let crAa = Number.isFinite(crStart) && crStart > crMaxNext ? crStart : crMaxNext;
   const crIncCat = Number.isFinite(Number(cr.incomeCatId)) ? Number(cr.incomeCatId) : 2;
   const crIncVal = Number.isFinite(Number(cr.incomeValId)) ? Number(cr.incomeValId) : 8;
   const crVatEx = Number(cr.vatExemptionId ?? saleDoc?.vatExemptionId);
@@ -234,7 +257,9 @@ export async function creditForSale(saleId: number, _reason: string, amount?: { 
 
   // ΛΙΑΝΙΚΗ (Πιστωτικό Στοιχ. Λιανικής 11.4 / type 22): ΧΩΡΙΣ συσχετιζόμενο παραστατικό, ΧΩΡΙΣ
   // αρνητικά ποσά — απλώς νέο παραστατικό με InvoiceTypeId 22 (οδηγία RBS RapidSign· void δεν επιτρέπεται).
-  const res = await provider.postInvoice({
+  let res: any;
+  for (let _a = 0; _a < 25; _a++) {
+  res = await provider.postInvoice({
     invoiceTypeId: Number(cr.invoiceTypeId) || 22, series: crSeries,
     aa: String(crAa), counter: 1,
     issueDate: new Date().toISOString(), currencyId: 47,
@@ -256,6 +281,10 @@ export async function creditForSale(saleId: number, _reason: string, amount?: { 
         : { payGuid: randomUUID(), paymentId: 3, net, vat, amount: total, paymentStatus: 2, acquirerId: Number(cr.acquirerId) || 122, tidNsp: String(Date.now()).slice(-8) },
     ],
   });
+    const dup = !res.ok && /\b1114\b|\b1196\b|έχει λάβει ήδη|έχει λάβει Μ\.?ΑΡ\.?Κ|ήδη αποθηκευτεί/i.test(String(res.error ?? '') + JSON.stringify(res.raw ?? ''));
+    if (!dup) break;
+    crAa += 1; // ο πάροχος έχει ήδη αυτό το αα πιστωτικού — δοκίμασε το επόμενο
+  }
 
   if (res.ok && res.mark) {
     db.prepare(`INSERT INTO fiscal_documents
@@ -265,6 +294,8 @@ export async function creditForSale(saleId: number, _reason: string, amount?: { 
         res.mark ?? null, res.uid ?? null, res.authenticationCode ?? null, res.qrCodeMyData ?? null, res.qrCode ?? null, res.guid ?? null,
         orig.mark, net, vat, total, JSON.stringify(res.raw ?? '').slice(0, 4000));
     db.prepare("UPDATE fiscal_documents SET status = 'cancelled' WHERE id = ?").run(orig.id);
+    // Αποθήκευση του τρέχοντος αα πιστωτικού στο config του παραστατικού (ορατό/ρυθμιζόμενο).
+    persistDocAa(cr.id, crAa);
     return { ok: true, mark: res.mark };
   }
   return { ok: false, error: res.error || 'Δεν επιστράφηκε ΜΑΡΚ για το πιστωτικό' };
