@@ -46,7 +46,7 @@
     <section class="section" style="padding-top:24px">
       <div class="container split" style="align-items:start">
         <div>
-          <form id="lead-form" class="form-card" data-ok="✓ Благодарим! Получихме заявката ви и ще се свържем скоро." data-err="Грешка: ">
+          <form id="lead-form" class="form-card" data-ok="Благодарим!" data-okmsg="Получихме съобщението ви. Скоро наш колега ще се свърже с вас." data-err="Грешка: ">
             <div id="form-msg" class="form-msg" role="status" aria-live="polite"></div>
             <div class="form-row">
               <div class="field"><label for="f-name">Име и фамилия</label><input id="f-name" name="name" autocomplete="name" /></div>
@@ -71,7 +71,7 @@
               <div class="field"><label for="f-existing">Съществуващ касов апарат/доставчик?</label><input id="f-existing" name="existing_system" /></div>
             </div>
             <div class="field"><label for="f-msg">Съобщение / специални нужди</label><textarea id="f-msg" name="message" rows="4"></textarea></div>
-            <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Не попълвайте<input name="website" tabindex="-1" autocomplete="off" /></label></div>
+            <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Не попълвайте<input name="hp_token" tabindex="-1" autocomplete="off" /></label></div>
             <button type="submit" class="btn btn-primary">Изпрати заявка</button>
             <p class="privacy mt-2">Данните ви се използват само за връзка относно заявката ви (GDPR). Не се споделят с трети страни.</p>
           </form>

@@ -787,16 +787,30 @@ function DocumentsTab() {
           <h4 className="font-semibold">Email απόδειξης online πωλήσεων</h4>
           <span className="ml-2 text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded">2ο email με σύνδεσμο ΑΠΥ</span>
         </div>
-        <p className="text-xs text-gray-500 mb-2">Για τις <b>online πωλήσεις</b> (όλες με κάρτα), κατά τον συγχρονισμό εκδίδεται ΑΠΥ στον πάροχο και στέλνεται ένα 2ο email στον πελάτη με <b>σύνδεσμο προς το επίσημο PDF</b> της απόδειξης (ΜΑΡΚ). Συμπλήρωσε το κλειδί και τον αποστολέα.</p>
+        <p className="text-xs text-gray-500 mb-2">Για τις <b>online πωλήσεις</b> (όλες με κάρτα), κατά τον συγχρονισμό εκδίδεται ΑΠΥ στον πάροχο και στέλνεται ένα 2ο email στον πελάτη με <b>σύνδεσμο προς το επίσημο PDF</b> της απόδειξης (ΜΑΡΚ). Διάλεξε <b>Πάροχο</b>: <b>Resend</b> (API key) ή <b>Microsoft 365</b> (Graph — app registration με Application permission <i>Mail.Send</i> &amp; admin consent· το «Αποστολέας/From» πρέπει να είναι το mailbox, π.χ. noreply@domain.gr).</p>
         <div className="grid grid-cols-2 gap-3">
           <L label="Ενεργό">
             <select className="inp" value={email.enabled ? '1' : '0'} onChange={(e) => setEmail('enabled', e.target.value === '1')}>
               <option value="0">Όχι</option><option value="1">Ναι</option>
             </select>
           </L>
-          <L label="Αποστολέας (From)"><input className="inp" placeholder="Όνομα <noreply@domain.gr>" value={email.from ?? ''} onChange={(e) => setEmail('from', e.target.value)} /></L>
-          <L label="Κλειδί (API key)"><input className="inp" type="password" placeholder="••••••••" value={email.resendKey ?? ''} onChange={(e) => setEmail('resendKey', e.target.value)} /></L>
+          <L label="Πάροχος">
+            <select className="inp" value={email.provider ?? 'resend'} onChange={(e) => setEmail('provider', e.target.value)}>
+              <option value="resend">Resend</option>
+              <option value="graph">Microsoft 365 (Graph)</option>
+            </select>
+          </L>
+          <L label="Αποστολέας (From)"><input className="inp" placeholder={(email.provider === 'graph') ? 'noreply@domain.gr (mailbox)' : 'Όνομα <noreply@domain.gr>'} value={email.from ?? ''} onChange={(e) => setEmail('from', e.target.value)} /></L>
           <L label="Reply-To (προαιρετικό)"><input className="inp" placeholder="info@domain.gr" value={email.replyTo ?? ''} onChange={(e) => setEmail('replyTo', e.target.value)} /></L>
+          {(email.provider ?? 'resend') === 'graph' ? (
+            <>
+              <L label="Tenant ID (MS 365)"><input className="inp" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" value={email.tenantId ?? ''} onChange={(e) => setEmail('tenantId', e.target.value)} /></L>
+              <L label="Client ID"><input className="inp" placeholder="application (client) id" value={email.clientId ?? ''} onChange={(e) => setEmail('clientId', e.target.value)} /></L>
+              <L label="Client Secret"><input className="inp" type="password" placeholder="••••••••" value={email.clientSecret ?? ''} onChange={(e) => setEmail('clientSecret', e.target.value)} /></L>
+            </>
+          ) : (
+            <L label="Resend API key"><input className="inp" type="password" placeholder="••••••••" value={email.resendKey ?? ''} onChange={(e) => setEmail('resendKey', e.target.value)} /></L>
+          )}
         </div>
         <div className="flex gap-2 mt-3">
           <button onClick={testEmail} className="bg-sky-600 text-white px-4 py-1.5 rounded text-sm">Δοκιμαστικό email</button>

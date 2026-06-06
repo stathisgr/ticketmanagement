@@ -46,7 +46,7 @@
     <section class="section" style="padding-top:24px">
       <div class="container split" style="align-items:start">
         <div>
-          <form id="lead-form" class="form-card" data-ok="✓ Teşekkürler! Talebinizi aldık, kısa süre içinde dönüş yapacağız." data-err="Hata: ">
+          <form id="lead-form" class="form-card" data-ok="Teşekkürler!" data-okmsg="Mesajınızı aldık. Ekibimizden biri kısa süre içinde sizinle iletişime geçecek." data-err="Hata: ">
             <div id="form-msg" class="form-msg" role="status" aria-live="polite"></div>
             <div class="form-row">
               <div class="field"><label for="f-name">Ad Soyad</label><input id="f-name" name="name" autocomplete="name" /></div>
@@ -71,7 +71,7 @@
               <div class="field"><label for="f-existing">Mevcut yazarkasa/sağlayıcı?</label><input id="f-existing" name="existing_system" /></div>
             </div>
             <div class="field"><label for="f-msg">Mesaj / özel ihtiyaçlar</label><textarea id="f-msg" name="message" rows="4"></textarea></div>
-            <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Doldurmayın<input name="website" tabindex="-1" autocomplete="off" /></label></div>
+            <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Doldurmayın<input name="hp_token" tabindex="-1" autocomplete="off" /></label></div>
             <button type="submit" class="btn btn-primary">Talebi gönder</button>
             <p class="privacy mt-2">Bilgileriniz yalnızca talebinizle ilgili iletişim için kullanılır (GDPR). Üçüncü taraflarla paylaşılmaz.</p>
           </form>

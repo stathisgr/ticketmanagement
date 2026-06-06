@@ -49,7 +49,7 @@
     <section class="section" style="padding-top:24px">
       <div class="container split" style="align-items:start">
         <div>
-          <form id="lead-form" class="form-card" data-ok="✓ Thank you! We received your request and will get back to you shortly." data-err="Error: ">
+          <form id="lead-form" class="form-card" data-ok="Thank you!" data-okmsg="We received your message. One of our team will contact you shortly." data-err="Error: ">
             <div id="form-msg" class="form-msg" role="status" aria-live="polite"></div>
             <div class="form-row">
               <div class="field"><label for="f-name">Full name</label><input id="f-name" name="name" autocomplete="name" /></div>
@@ -74,7 +74,7 @@
               <div class="field"><label for="f-existing">Existing cash register/provider?</label><input id="f-existing" name="existing_system" /></div>
             </div>
             <div class="field"><label for="f-msg">Message / special needs</label><textarea id="f-msg" name="message" rows="4"></textarea></div>
-            <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Do not fill<input name="website" tabindex="-1" autocomplete="off" /></label></div>
+            <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Do not fill<input name="hp_token" tabindex="-1" autocomplete="off" /></label></div>
             <button type="submit" class="btn btn-primary">Send request</button>
             <p class="privacy mt-2">Your details are used only to contact you about your request (GDPR). They are not shared with third parties.</p>
           </form>

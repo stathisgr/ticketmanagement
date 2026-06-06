@@ -46,7 +46,7 @@
     <section class="section" style="padding-top:24px">
       <div class="container split" style="align-items:start">
         <div>
-          <form id="lead-form" class="form-card" data-ok="✓ Ευχαριστούμε! Λάβαμε το αίτημά σας και θα επικοινωνήσουμε σύντομα." data-err="Σφάλμα: ">
+          <form id="lead-form" class="form-card" data-ok="Ευχαριστούμε!" data-okmsg="Λάβαμε το μήνυμά σας. Σύντομα ένας συνεργάτης μας θα επικοινωνήσει μαζί σας." data-err="Σφάλμα: ">
             <div id="form-msg" class="form-msg" role="status" aria-live="polite"></div>
             <div class="form-row">
               <div class="field"><label for="f-name">Ονοματεπώνυμο</label><input id="f-name" name="name" autocomplete="name" /></div>
@@ -71,7 +71,7 @@
               <div class="field"><label for="f-existing">Υφιστάμενη ταμειακή/πάροχος;</label><input id="f-existing" name="existing_system" /></div>
             </div>
             <div class="field"><label for="f-msg">Μήνυμα / ειδικές ανάγκες</label><textarea id="f-msg" name="message" rows="4"></textarea></div>
-            <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Μην συμπληρώνετε<input name="website" tabindex="-1" autocomplete="off" /></label></div>
+            <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Μην συμπληρώνετε<input name="hp_token" tabindex="-1" autocomplete="off" /></label></div>
             <button type="submit" class="btn btn-primary">Αποστολή αιτήματος</button>
             <p class="privacy mt-2">Τα στοιχεία σας χρησιμοποιούνται μόνο για την επικοινωνία σχετικά με το αίτημά σας (GDPR). Δεν κοινοποιούνται σε τρίτους.</p>
           </form>

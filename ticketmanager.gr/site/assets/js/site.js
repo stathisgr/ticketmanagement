@@ -32,11 +32,18 @@
       });
       var j = await r.json();
       if (r.ok && j.ok) {
-        msg.className = "form-msg ok"; msg.textContent = form.getAttribute("data-ok") || "✓ Ευχαριστούμε! Λάβαμε το αίτημά σας.";
-        form.reset();
-      } else {
-        msg.className = "form-msg err"; msg.textContent = (form.getAttribute("data-err") || "Σφάλμα: ") + (j.error || r.status);
+        var okTitle = form.getAttribute("data-ok") || "Ευχαριστούμε!";
+        var okMsg = form.getAttribute("data-okmsg") || "Λάβαμε το μήνυμά σας και θα επικοινωνήσουμε σύντομα.";
+        var box = document.createElement("div"); box.className = "form-thanks";
+        var ico = document.createElement("div"); ico.className = "ft-ico"; ico.textContent = "✓";
+        var h = document.createElement("h3"); h.textContent = okTitle;
+        var p = document.createElement("p"); p.textContent = okMsg;
+        box.appendChild(ico); box.appendChild(h); box.appendChild(p);
+        form.innerHTML = ""; form.appendChild(box);
+        try { form.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_e) {}
+        return;
       }
+      msg.className = "form-msg err"; msg.textContent = (form.getAttribute("data-err") || "Σφάλμα: ") + (j.error || r.status);
     } catch (err) {
       msg.className = "form-msg err"; msg.textContent = (form.getAttribute("data-err") || "Σφάλμα: ") + err;
     } finally { if (btn) btn.disabled = false; }

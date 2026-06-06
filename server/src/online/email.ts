@@ -1,27 +1,84 @@
 /**
- * Αποστολή email από τον τοπικό server μέσω Resend (HTTP API).
- * Η ρύθμιση (κλειδί/αποστολέας) αποθηκεύεται από τον χρήστη στο fiscal_config.config.email
+ * Αποστολή email από τον τοπικό server.
+ * Υποστηρίζονται ΔΥΟ πάροχοι (επιλέγεται από τη ρύθμιση `email.provider`):
+ *   - 'resend' (προεπιλογή / συμβατότητα): Resend HTTP API.
+ *   - 'graph'  : Microsoft 365 (Microsoft Graph, client-credentials) — αποστολή από mailbox/shared mailbox.
+ * Η ρύθμιση (κλειδιά/αποστολέας) αποθηκεύεται από τον χρήστη στο fiscal_config.config.email
  * (όπως και τα υπόλοιπα διαπιστευτήρια — δεν τα διαχειρίζεται ο βοηθός).
  */
 import { db } from '../db.js';
 
-export interface EmailCfg { resendKey: string; from: string; replyTo?: string; }
+export type EmailProvider = 'resend' | 'graph';
 
-/** Διαβάζει τη ρύθμιση email· null αν δεν είναι ενεργή/συμπληρωμένη. */
+export interface EmailCfg {
+  provider: EmailProvider;
+  from: string;
+  replyTo?: string;
+  // Resend
+  resendKey?: string;
+  // Microsoft 365 (Graph)
+  tenantId?: string;
+  clientId?: string;
+  clientSecret?: string;
+}
+
+/** Διαβάζει τη ρύθμιση email· null αν δεν είναι ενεργή/συμπληρωμένη για τον επιλεγμένο πάροχο. */
 export function emailCfg(): EmailCfg | null {
   const row = db.prepare('SELECT config FROM fiscal_config WHERE id = 1').get() as any;
   let c: any = {}; try { c = JSON.parse(row?.config ?? '{}'); } catch { /* ignore */ }
   const e = c.email;
-  if (!e || !e.enabled || !e.resendKey || !e.from) return null;
-  return { resendKey: String(e.resendKey), from: String(e.from), replyTo: e.replyTo ? String(e.replyTo) : undefined };
+  if (!e || !e.enabled || !e.from) return null;
+  const provider: EmailProvider = e.provider === 'graph' ? 'graph' : 'resend';
+  const from = String(e.from);
+  const replyTo = e.replyTo ? String(e.replyTo) : undefined;
+  if (provider === 'graph') {
+    if (!e.tenantId || !e.clientId || !e.clientSecret) return null;
+    return { provider, from, replyTo, tenantId: String(e.tenantId), clientId: String(e.clientId), clientSecret: String(e.clientSecret) };
+  }
+  // resend (default)
+  if (!e.resendKey) return null;
+  return { provider, from, replyTo, resendKey: String(e.resendKey) };
+}
+
+/** Microsoft Graph: λήψη access token (client credentials). */
+async function graphToken(cfg: EmailCfg): Promise<string> {
+  const res = await fetch(`https://login.microsoftonline.com/${cfg.tenantId}/oauth2/v2.0/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: cfg.clientId!,
+      client_secret: cfg.clientSecret!,
+      scope: 'https://graph.microsoft.com/.default',
+      grant_type: 'client_credentials',
+    }),
+  });
+  if (!res.ok) throw new Error(`token ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  return (await res.json()).access_token as string;
 }
 
 /** Αποστολή ενός email. Επιστρέφει {ok} — δεν ρίχνει εξαίρεση (να μη σπάει ο συγχρονισμός). */
 export async function sendEmail(to: string, subject: string, html: string): Promise<{ ok: boolean; error?: string }> {
   const cfg = emailCfg();
-  if (!cfg) return { ok: false, error: 'Δεν έχει ρυθμιστεί email (Resend).' };
+  if (!cfg) return { ok: false, error: 'Δεν έχει ρυθμιστεί email.' };
   if (!to) return { ok: false, error: 'Λείπει παραλήπτης.' };
   try {
+    if (cfg.provider === 'graph') {
+      const token = await graphToken(cfg);
+      const message: Record<string, unknown> = {
+        subject,
+        body: { contentType: 'HTML', content: html },
+        toRecipients: [{ emailAddress: { address: to } }],
+        ...(cfg.replyTo ? { replyTo: [{ emailAddress: { address: cfg.replyTo } }] } : {}),
+      };
+      const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(cfg.from)}/sendMail`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, saveToSentItems: true }),
+      });
+      if (!res.ok) return { ok: false, error: `Graph ${res.status}: ${(await res.text()).slice(0, 200)}` };
+      return { ok: true };
+    }
+    // resend (default) — αμετάβλητο
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${cfg.resendKey}`, 'Content-Type': 'application/json' },
