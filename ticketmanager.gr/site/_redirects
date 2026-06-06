@@ -1,2 +1,1 @@
-# SPA fallback for the booking demo (applies once /demo/ is deployed)
-/demo/*   /demo/index.html   200
+# Χωρίς redirects. Το demo SPA λειτουργεί με query params στο /demo/ (το /demo/ σερβίρει το index.html αυτόματα).
