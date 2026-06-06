@@ -1,0 +1,40 @@
+# Alpha Ticket Manager
+
+> Σύστημα έκδοσης εισιτηρίων (ticketing) για ταμείο και online κρατήσεις, προϊόν της Alpha ΠΛΗΡΟΦΟΡΙΚΗ Α.Ε. (Αλεξανδρούπολη, Ελλάδα). Alpha Ticket Manager is a box-office and online ticketing system by Alpha Pliroforiki S.A.
+
+## Τι κάνει / What it does
+- Έκδοση εισιτηρίων από ταμείο (POS) και online κρατήσεις.
+- Επιλογή θέσεων (αίθουσες/κάτοψη) ή γενική είσοδος χωρίς θέσεις.
+- Πληρωμές με κάρτα (ταμείο & online), e-ticket με QR Code στο email.
+- Έλεγχος εισόδου (check-in) με σάρωση QR.
+- Ταμείο & αναφορές πωλήσεων· τύποι εισιτηρίων (κανονικό/μειωμένο/ΑμεΑ/ομαδικά).
+- Φορολογική προσαρμογή: πάροχος ηλεκτρονικής τιμολόγησης (myDATA) ή ταμειακή.
+- Ρόλοι χρηστών: διαχειριστής, ταμίας, ελεγκτής εισόδου.
+
+## Για ποιους / For whom
+Θέατρα, κινηματογράφοι, μουσεία, εκθέσεις, αθλητικές διοργανώσεις, συναυλίες, φεστιβάλ, δήμοι, σύλλογοι, τουριστικές δραστηριότητες.
+
+## Σελίδες / Pages
+- Αρχική: https://ticketmanager.gr/
+- Χαρακτηριστικά: https://ticketmanager.gr/Xaraktiristika_systima_eisitirion.html
+- Κλάδοι: https://ticketmanager.gr/Eisitiria_ana_klado.html
+- Θέατρα: https://ticketmanager.gr/Eisitiria_gia_theatra.html
+- Κινηματογράφοι: https://ticketmanager.gr/Eisitiria_gia_kinimatografous.html
+- Μουσεία & Εκθέσεις: https://ticketmanager.gr/Eisitiria_gia_mouseia_ektheseis.html
+- Αθλητικά & Γήπεδα: https://ticketmanager.gr/Eisitiria_gia_athlitikous_xorous.html
+- Συναυλίες & Φεστιβάλ: https://ticketmanager.gr/Eisitiria_gia_synaylies_festival.html
+- Φορείς & Τουρισμός: https://ticketmanager.gr/Eisitiria_gia_dimous_foreis_tourismos.html
+- Demo online booking: https://ticketmanager.gr/demo/
+- Υποστήριξη & FAQ: https://ticketmanager.gr/Ypostirixi_kai_egkatastasi.html
+- Επικοινωνία: https://ticketmanager.gr/Epikoinonia.html
+
+## Επικοινωνία / Contact
+- Email: sales@ticketmanager.gr
+- Τηλ.: +30 25510 38444, +30 210 7108444
+- Εταιρεία: Alpha ΠΛΗΡΟΦΟΡΙΚΗ Α.Ε., https://axd.gr (eshop: https://axd.gr/ticket-management-simple)
+
+## Γλώσσες / Languages
+- Ελληνικά: https://ticketmanager.gr/
+- English: https://ticketmanager.gr/en/
+- Türkçe: https://ticketmanager.gr/tr/
+- Български: https://ticketmanager.gr/bg/

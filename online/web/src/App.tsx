@@ -156,7 +156,10 @@ export default function App() {
 
   return (
     <>
-      <div className="appbar"><div className="wrap"><h1>🎭 Online Κρατήσεις Εισιτηρίων</h1></div></div>
+      <div className="appbar"><div className="wrap appbar-inner">
+        <a className="appbar-brand" href="/" aria-label="Alpha Ticket Manager"><img src="/demo/assets/ticket_manager_logo_big.webp" alt="Alpha Ticket Manager" width="120" height="48" /></a>
+        <span className="appbar-title">Online Κρατήσεις Εισιτηρίων</span>
+      </div></div>
       <div className="wrap">
         {error && <div className="err">{error}</div>}
 
@@ -340,6 +343,10 @@ export default function App() {
         )}
       </div>
       {showTerms && <Terms venue={show?.venue_name} onClose={() => setShowTerms(false)} />}
+      <footer className="demo-footer"><div className="wrap">
+        <span>Μια υπηρεσία της <a href="https://axd.gr" target="_blank" rel="noreferrer">Alpha PLIROFORIKI S.A.</a> · <a href="/">ticketmanager.gr</a></span>
+        <a href="https://axd.gr" target="_blank" rel="noreferrer" aria-label="Alpha PLIROFORIKI S.A."><img className="demo-foot-logo" src="/demo/assets/logo-alpha.webp" alt="Alpha PLIROFORIKI S.A." width="120" height="44" /></a>
+      </div></footer>
     </>
   );
 }

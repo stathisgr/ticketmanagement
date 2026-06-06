@@ -1,21 +1,26 @@
 :root {
   --ink: #1f2937; --muted: #6b7280; --line: #e5e7eb; --bg: #f3f4f6;
-  --brand: #0f3d5c; --ok: #16a34a; --free: #cbd5e1; --sel: #f59e0b; --sold: #ef4444;
+  --brand: #0c2c54; --accent: #c20e22; --accent-2: #9c0b18; --ok: #16a34a; --free: #cbd5e1; --sel: #f59e0b; --sold: #ef4444;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
   font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
 .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
-.appbar { background: var(--brand); color: #fff; padding: 16px; }
+.appbar { background: #fff; color: var(--ink); padding: 10px 0; border-bottom: 1px solid #e3e9f1; position: sticky; top: 0; z-index: 50; }
 .appbar h1 { margin: 0; font-size: 18px; }
+.appbar-inner { display: flex; align-items: center; gap: 14px; }
+.appbar-brand { display: inline-flex; }
+.appbar-brand img { height: 46px; width: auto; display: block; }
+.appbar-title { font-weight: 800; color: var(--brand); font-size: 1.02rem; }
 .card { background: #fff; border-radius: 14px; box-shadow: 0 4px 14px rgba(0,0,0,.07);
   padding: 16px; margin-bottom: 14px; cursor: pointer; border: 2px solid transparent; }
 .card:hover { border-color: var(--brand); }
 .card h3 { margin: 0 0 4px; font-size: 18px; }
 .muted { color: var(--muted); font-size: 14px; }
 .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.btn { background: var(--brand); color: #fff; border: 0; border-radius: 10px;
+.btn { background: var(--accent); color: #fff; border: 0; border-radius: 10px;
   padding: 12px 18px; font-size: 16px; font-weight: 700; cursor: pointer; }
+.btn:hover:not(:disabled) { background: var(--accent-2); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn.alt { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
 .link { background: none; border: 0; color: var(--brand); cursor: pointer; font-size: 14px; padding: 0; }
@@ -103,3 +108,10 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 .tk-price { font-size: 22px; font-weight: 800; }
 .tk-legal { font-size: 11px; color: var(--muted); text-align: center; padding: 14px 22px; border-top: 1px solid var(--line); }
 .tk-stub { background: var(--brand); height: 8px; }
+
+
+/* Demo footer — matches the marketing site */
+.demo-footer { background: #0c2c54; color: #cdddf0; margin-top: 28px; padding: 18px 0; }
+.demo-footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.demo-footer a { color: #fff; }
+.demo-foot-logo { height: 40px; width: auto; background: #fff; padding: 6px 9px; border-radius: 8px; }

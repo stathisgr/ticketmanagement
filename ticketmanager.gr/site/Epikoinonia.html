@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Επικοινωνία — Ζητήστε παρουσίαση | Alpha Ticket Manager</title>
+  <meta name="description" content="Ζητήστε παρουσίαση ή προσφορά για το Alpha Ticket Manager. Περιγράψτε τον χώρο σας και θα σας προτείνουμε λύση έκδοσης εισιτηρίων, online κρατήσεων και QR check-in." />
+  <link rel="canonical" href="https://ticketmanager.gr/Epikoinonia.html" />
+  <link rel="alternate" hreflang="el" href="https://ticketmanager.gr/Epikoinonia.html" />
+  <link rel="alternate" hreflang="en" href="https://ticketmanager.gr/en/contact.html" />
+  <link rel="alternate" hreflang="tr" href="https://ticketmanager.gr/tr/iletisim.html" />
+  <link rel="alternate" hreflang="bg" href="https://ticketmanager.gr/bg/kontakti.html" />
+  <link rel="alternate" hreflang="x-default" href="https://ticketmanager.gr/Epikoinonia.html" />
+  <meta property="og:title" content="Επικοινωνία — Alpha Ticket Manager" />
+  <meta name="theme-color" content="#0c2c54" />
+  <link rel="icon" href="/assets/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+  <link rel="manifest" href="/assets/site.webmanifest" />
+  <link rel="stylesheet" href="/assets/css/site.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container nav">
+      <a class="brand" href="/"><img src="/assets/ticket_manager_logo_big.webp" alt="Alpha Ticket Manager" width="126" height="50" /></a>
+      <button class="nav-toggle" data-nav-toggle aria-label="Μενού" aria-expanded="false">☰</button>
+      <nav class="nav-links" aria-label="Κύρια πλοήγηση">
+        <a href="/Xaraktiristika_systima_eisitirion.html">Χαρακτηριστικά</a>
+        <a href="/Eisitiria_ana_klado.html">Κλάδοι</a>
+        <a href="/Demo_online_krathseis_eisitirion.html">Demo</a>
+        <a href="/Ypostirixi_kai_egkatastasi.html">Υποστήριξη</a>
+        <a href="/Epikoinonia.html">Επικοινωνία</a>
+        <span class="lang-switch" aria-label="Γλώσσα"><a href="/Epikoinonia.html" class="active">EL</a><a href="/en/contact.html">EN</a><a href="/tr/iletisim.html">TR</a><a href="/bg/kontakti.html">BG</a></span>
+        <a class="btn btn-primary" href="#lead-form" style="padding:.5rem 1rem">Ζητήστε παρουσίαση</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="page-hero with-bg">
+    <img src="/assets/herobanner_alpha_ticket_manager3_theatre_cinema_sports_museums.webp" alt="" aria-hidden="true" loading="eager" style="object-position:center bottom" />
+    <div class="container"><h1>Ζητήστε παρουσίαση</h1><p>Πείτε μας τον χώρο σας και θα σας δείξουμε πώς το Alpha Ticket Manager προσαρμόζεται στον τρόπο που ήδη λειτουργείτε — με πρόταση στα μέτρα σας.</p></div>
+  </div>
+  <div class="container breadcrumb"><a href="/">Αρχική</a> › Επικοινωνία</div>
+
+  <main id="main-content" tabindex="-1">
+    <section class="section" style="padding-top:24px">
+      <div class="container split" style="align-items:start">
+        <div>
+          <form id="lead-form" class="form-card" data-ok="✓ Ευχαριστούμε! Λάβαμε το αίτημά σας και θα επικοινωνήσουμε σύντομα." data-err="Σφάλμα: ">
+            <div id="form-msg" class="form-msg" role="status" aria-live="polite"></div>
+            <div class="form-row">
+              <div class="field"><label for="f-name">Ονοματεπώνυμο</label><input id="f-name" name="name" autocomplete="name" /></div>
+              <div class="field"><label for="f-company">Εταιρεία / Φορέας</label><input id="f-company" name="company" autocomplete="organization" /></div>
+            </div>
+            <div class="form-row">
+              <div class="field"><label for="f-email">Email</label><input id="f-email" name="email" type="email" autocomplete="email" required /></div>
+              <div class="field"><label for="f-phone">Τηλέφωνο</label><input id="f-phone" name="phone" type="tel" autocomplete="tel" /></div>
+            </div>
+            <div class="form-row">
+              <div class="field"><label for="f-venue">Τύπος χώρου</label>
+                <select id="f-venue" name="venue_type"><option value="">—</option><option>Θέατρο</option><option>Κινηματογράφος</option><option>Μουσείο / Έκθεση</option><option>Αθλητικός χώρος</option><option>Συναυλία / Φεστιβάλ</option><option>Δήμος / Φορέας</option><option>Τουρισμός</option><option>Άλλο</option></select>
+              </div>
+              <div class="field"><label for="f-venues">Αριθμός αιθουσών / χώρων</label><input id="f-venues" name="venues" /></div>
+            </div>
+            <div class="form-row">
+              <div class="field"><label for="f-seats">Αριθμημένες θέσεις;</label><select id="f-seats" name="numbered_seats"><option value="">—</option><option>Ναι</option><option>Όχι</option><option>Και τα δύο</option></select></div>
+              <div class="field"><label for="f-online">Online κρατήσεις;</label><select id="f-online" name="online_needed"><option value="">—</option><option>Ναι</option><option>Όχι</option><option>Ίσως</option></select></div>
+            </div>
+            <div class="form-row">
+              <div class="field"><label for="f-volume">Εισιτήρια ανά μήνα (περίπου)</label><input id="f-volume" name="volume" /></div>
+              <div class="field"><label for="f-existing">Υφιστάμενη ταμειακή/πάροχος;</label><input id="f-existing" name="existing_system" /></div>
+            </div>
+            <div class="field"><label for="f-msg">Μήνυμα / ειδικές ανάγκες</label><textarea id="f-msg" name="message" rows="4"></textarea></div>
+            <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Μην συμπληρώνετε<input name="website" tabindex="-1" autocomplete="off" /></label></div>
+            <button type="submit" class="btn btn-primary">Αποστολή αιτήματος</button>
+            <p class="privacy mt-2">Τα στοιχεία σας χρησιμοποιούνται μόνο για την επικοινωνία σχετικά με το αίτημά σας (GDPR). Δεν κοινοποιούνται σε τρίτους.</p>
+          </form>
+        </div>
+        <aside>
+          <div class="card">
+            <img class="alpha-logo card-logo" src="/assets/logo-alpha.webp" alt="Alpha ΠΛΗΡΟΦΟΡΙΚΗ Α.Ε." width="160" height="59" />
+            <p><strong>Alpha ΠΛΗΡΟΦΟΡΙΚΗ Α.Ε.</strong><br>Λ. Δημοκρατίας 39<br>Αλεξανδρούπολη 68132</p>
+            <p>📞 <a href="tel:+302551038444">25510 38444</a><br>📞 <a href="tel:+302107108444">210 7108444</a><br>✉️ <a href="mailto:sales@ticketmanager.gr">sales@ticketmanager.gr</a><br>🌐 <a href="https://axd.gr" target="_blank" rel="noopener">axd.gr</a></p>
+          </div>
+          <div class="card mt-2">
+            <h3>Τι περιλαμβάνει η τιμή;</h3>
+            <p>Η τιμή στο <a href="https://axd.gr/ticket-management-simple" target="_blank" rel="noopener">eshop</a> αφορά τη βασική έκδοση για ένα ταμείο, χωρίς εξοπλισμό/υποστήριξη. Επικοινωνήστε για πρόταση που καλύπτει ακριβώς τις ανάγκες σας.</p>
+            <p class="mb-0"><a class="btn btn-ghost" href="/demo/">▶ Δείτε πρώτα το Demo</a></p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div><h4>Alpha Ticket Manager</h4><p>Σύστημα έκδοσης εισιτηρίων για ταμείο, online κρατήσεις και QR έλεγχο εισόδου.</p><p>Μια υπηρεσία της <a href="https://axd.gr" target="_blank" rel="noopener">Alpha ΠΛΗΡΟΦΟΡΙΚΗ Α.Ε.</a></p><p class="alpha-by"><img class="alpha-logo" src="/assets/logo-alpha.webp" alt="Alpha ΠΛΗΡΟΦΟΡΙΚΗ Α.Ε." width="160" height="59" /></p></div>
+        <div><h4>Σελίδες</h4><p><a href="/Xaraktiristika_systima_eisitirion.html">Χαρακτηριστικά</a><br><a href="/Eisitiria_ana_klado.html">Κλάδοι</a><br><a href="/Demo_online_krathseis_eisitirion.html">Demo</a><br><a href="/Ypostirixi_kai_egkatastasi.html">Υποστήριξη</a></p></div>
+        <div><h4>Επικοινωνία</h4><p>Λ. Δημοκρατίας 39<br>Αλεξανδρούπολη 68132<br>Τηλ.: <a href="tel:+302551038444">25510 38444</a> · <a href="tel:+302107108444">210 7108444</a><br>Email: <a href="mailto:sales@ticketmanager.gr">sales@ticketmanager.gr</a></p></div>
+      </div>
+      <div class="footer-bottom"><span>© <span id="yr">2026</span> Alpha ΠΛΗΡΟΦΟΡΙΚΗ Α.Ε. — Alpha Ticket Manager</span><span class="lang-switch"><a href="/Epikoinonia.html" class="active">EL</a> · <a href="/en/contact.html">EN</a> · <a href="/tr/iletisim.html">TR</a> · <a href="/bg/kontakti.html">BG</a></span></div>
+    </div>
+  </footer>
+
+  <script>document.getElementById('yr').textContent=new Date()

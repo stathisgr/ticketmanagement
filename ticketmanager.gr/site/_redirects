@@ -1,0 +1,2 @@
+# SPA fallback for the booking demo (applies once /demo/ is deployed)
+/demo/*   /demo/index.html   200

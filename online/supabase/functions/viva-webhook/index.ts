@@ -9,7 +9,7 @@ import { buildTicketsPdf, type PdfTicket } from "../_shared/pdf.ts";
 
 const json = (b: unknown, status = 200) =>
   new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json" } });
-const SITE = (Deno.env.get("PUBLIC_SITE_URL") ?? "https://ticketmanagement.stathis.workers.dev").replace(/\/$/, "");
+const SITE = (Deno.env.get("PUBLIC_SITE_URL") ?? "https://ticketmanager.gr/demo").replace(/\/$/, "");
 
 function fmtDateGr(iso: string): string {
   try {
@@ -19,6 +19,27 @@ function fmtDateGr(iso: string): string {
   } catch { return iso; }
 }
 const eur = (cents: number) => (cents / 100).toFixed(2).replace(".", ",") + " €";
+
+async function graphToken(): Promise<string> {
+  const r = await fetch(`https://login.microsoftonline.com/${Deno.env.get("MS_TENANT_ID")}/oauth2/v2.0/token`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: Deno.env.get("MS_CLIENT_ID")!, client_secret: Deno.env.get("MS_CLIENT_SECRET")!, scope: "https://graph.microsoft.com/.default", grant_type: "client_credentials" }),
+  });
+  if (!r.ok) throw new Error(`token ${r.status}: ${await r.text()}`);
+  return (await r.json()).access_token as string;
+}
+async function sendMailGraph(to: string, subject: string, html: string, attachments: { name: string; b64: string }[] = []) {
+  const from = Deno.env.get("MAIL_FROM") ?? "noreply@ticketmanager.gr";
+  const replyTo = Deno.env.get("LEAD_NOTIFY_EMAIL") ?? "sales@ticketmanager.gr";
+  const token = await graphToken();
+  const message: Record<string, unknown> = { subject, body: { contentType: "HTML", content: html }, toRecipients: [{ emailAddress: { address: to } }], replyTo: [{ emailAddress: { address: replyTo } }] };
+  if (attachments.length) message.attachments = attachments.map((a) => ({ "@odata.type": "#microsoft.graph.fileAttachment", name: a.name, contentType: "application/pdf", contentBytes: a.b64 }));
+  const r = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(from)}/sendMail`, {
+    method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ message, saveToSentItems: true }),
+  });
+  if (!r.ok) throw new Error(`sendMail ${r.status}: ${await r.text()}`);
+}
 
 Deno.serve(async (req) => {
   const viva = new Viva();
@@ -90,25 +111,15 @@ Deno.serve(async (req) => {
       pdfTickets.push(view);
     }
 
-    const resendKey = Deno.env.get("RESEND_API_KEY");
-    const from = Deno.env.get("MAIL_FROM") ?? "Εισιτήρια <onboarding@resend.dev>";
-    if (resendKey) {
-      let attachments: any[] = [];
+    // Email μέσω Microsoft 365 (Graph). Best-effort — αποτυχία email ΔΕΝ ρίχνει το webhook.
+    if (Deno.env.get("MS_CLIENT_ID")) {
       try {
-        const pdf = await buildTicketsPdf(pdfTickets);
-        const b64 = btoa(String.fromCharCode(...pdf));
-        attachments = [{ filename: `eisitiria-${order.id}.pdf`, content: b64 }];
-      } catch (_e) { /* αν αποτύχει το PDF, μόνο HTML+link */ }
-      const links = (tickets ?? [])
-        .map((t: any) => `<li><a href="${SITE}/?tk=${t.serial_uid}">${t.serial}</a></li>`).join("");
-      const body = `<div style="font-family:sans-serif"><h2>Η κράτησή σας επιβεβαιώθηκε</h2><p>${show.title} — ${fmtDateGr(show.show_date)} ${show.start_time}</p><p>Τα εισιτήριά σας:</p><ul>${links}</ul><p>Το εισιτήριο είναι και συνημμένο σε PDF.</p><hr>${htmlInline}</div>`;
-      try {
-        await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from, to: [order.customer_email], subject: `Εισιτήρια — ${show.title}`, html: body, attachments }),
-        });
-      } catch (_e) { /* log only */ }
+        let attachments: { name: string; b64: string }[] = [];
+        try { const pdf = await buildTicketsPdf(pdfTickets); const b64 = btoa(String.fromCharCode(...pdf)); attachments = [{ name: `eisitiria-${order.id}.pdf`, b64 }]; } catch (_e) { /* */ }
+        const links = (tickets ?? []).map((t: any) => `<li><a href="${SITE}/?tk=${t.serial_uid}">${t.serial}</a></li>`).join("");
+        const body = `<div style="font-family:sans-serif"><h2>Η κράτησή σας επιβεβαιώθηκε</h2><p>${show.title} — ${fmtDateGr(show.show_date)} ${show.start_time}</p><p>Τα εισιτήριά σας:</p><ul>${links}</ul><p>Το εισιτήριο είναι και συνημμένο σε PDF.</p><hr>${htmlInline}</div>`;
+        await sendMailGraph(order.customer_email, `Εισιτήρια — ${show.title}`, body, attachments);
+      } catch (e) { console.error("email failed:", String((e as Error).message)); }
     }
 
     return json({ ok: true, ticketsIssued: (tickets ?? []).length });

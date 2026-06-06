@@ -24,7 +24,7 @@ export default function Login({ onLogin }: { onLogin: (token: string, user: User
   return (
     <div className="h-full flex items-center justify-center bg-slate-800">
       <form onSubmit={submit} className="bg-white rounded-xl shadow-xl p-8 w-80">
-        <img src="/assets/favicon-128x128.png" alt="" className="h-16 w-16 mx-auto mb-2 rounded-xl"
+        <img src="/assets/icon-192.png" alt="" className="h-16 w-16 mx-auto mb-2 rounded-xl"
           onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         <h1 className="text-2xl font-bold mb-1 text-center">Ticket Manager</h1>
         <p className="text-gray-500 text-sm text-center mb-6">Σύνδεση χρήστη</p>
