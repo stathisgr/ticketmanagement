@@ -242,6 +242,7 @@ export default function App() {
 
                 <div className="screenrow">ΟΘΟΝΗ / ΣΚΗΝΗ</div>
                 <div className="seatmap">
+                  <div className="seatmap-inner">
                   {grid.map((row) => (
                     <div key={row.y} className="seatrow">
                       <span className="rowlabel">{row.cells.find((c) => c.kind === "seat")?.row_label ?? ""}</span>
@@ -258,6 +259,7 @@ export default function App() {
                       })}
                     </div>
                   ))}
+                  </div>
                 </div>
 
                 <div className="legend">
