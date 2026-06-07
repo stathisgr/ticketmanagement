@@ -1,22 +1,36 @@
 import type { FastifyInstance } from 'fastify';
-import { mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, unlinkSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { execFile } from 'node:child_process';
 import { db, DATA_DIR } from '../db.js';
 import { requireManager } from '../auth.js';
 import { onlineConfigured, pullCloudBackup } from '../online/sync.js';
 
+/** Εντοπίζει το εκτελέσιμο pg_dump: δέχεται είτε πλήρη διαδρομή αρχείου, είτε ΦΑΚΕΛΟ (bin) — οπότε
+ *  προσθέτει μόνο του το pg_dump(.exe). Κενό → ψάχνει στο PATH. */
+function resolvePgDump(p?: string): string {
+  const isWin = process.platform === 'win32';
+  const exe = isWin ? 'pg_dump.exe' : 'pg_dump';
+  let t = (p ?? '').trim().replace(/^"(.*)"$/, '$1'); // αφαίρεσε τυχόν εισαγωγικά
+  if (!t) return exe; // από το PATH
+  try {
+    if (existsSync(t) && statSync(t).isDirectory()) t = join(t, exe); // έδωσαν φάκελο → πρόσθεσε το εκτελέσιμο
+    else if (isWin && !/\.exe$/i.test(t) && existsSync(t + '.exe')) t = t + '.exe';
+  } catch { /* αγνόησε — θα φανεί στο σφάλμα εκτέλεσης */ }
+  return t;
+}
+
 /** Πλήρες backup της cloud βάσης (schema + data + functions + policies) με pg_dump → plain SQL. */
 function pgDumpFull(conn: string, pgDumpPath: string, outFile: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const bin = pgDumpPath && pgDumpPath.trim() ? pgDumpPath.trim() : 'pg_dump';
+    const bin = resolvePgDump(pgDumpPath);
     const args = ['--dbname', conn, '--no-owner', '--no-privileges', '-f', outFile];
     execFile(bin, args, { timeout: 180000, windowsHide: true }, (err, _out, stderr) => {
       if (err) {
         const enoent = (err as NodeJS.ErrnoException).code === 'ENOENT';
         reject(new Error(enoent
-          ? 'Δεν βρέθηκε το pg_dump. Εγκατέστησε PostgreSQL client tools ή όρισε τη διαδρομή του pg_dump στις ρυθμίσεις.'
-          : (String(stderr || err.message)).slice(0, 400)));
+          ? `Δεν βρέθηκε το pg_dump στο «${bin}». Δώσε την ΠΛΗΡΗ διαδρομή του pg_dump.exe (ή τον φάκελο bin) στις ρυθμίσεις, ή εγκατέστησε PostgreSQL client tools.`
+          : ('pg_dump: ' + String(stderr || err.message)).slice(0, 500)));
       } else resolve();
     });
   });
