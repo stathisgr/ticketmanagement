@@ -2,7 +2,10 @@
 // Χρησιμοποιεί το service_role key (μόνο server-side) μέσω PostgREST upsert.
 import { db } from '../db.js';
 import { issueForSale, type FiscalOutcome } from '../fiscal/issue.js';
-import { sendEmail, emailCfg, receiptEmailHtml } from './email.js';
+import { sendEmail, emailCfg, receiptEmailHtml, pendingReminderHtml } from './email.js';
+
+/** Βάση URL της δημόσιας σελίδας κρατήσεων (για συνδέσμους email). */
+const REMIND_SITE = (process.env.PUBLIC_SITE_URL || 'https://ticketmanager.gr/demo').replace(/\/$/, '');
 
 /** Έκδοση ΑΠΥ για μια πώληση + (αν νέα & υπάρχει email) αποστολή 2ου email με σύνδεσμο PDF παρόχου. */
 export async function issueAndEmailSale(saleId: number): Promise<FiscalOutcome | null> {
@@ -64,6 +67,85 @@ export async function issuePendingOnline(): Promise<{ pending: number; issued: n
     catch { failed++; }
   }
   return { pending: rows.length, issued, failed };
+}
+
+/**
+ * Υπενθύμιση ημιτελών (pending) online παραγγελιών: στέλνει email με σύνδεσμο ολοκλήρωσης πληρωμής
+ * (επιστροφή στο site → resume-order → νέο Viva order). Δύο φορές: ~30' και ξανά ~24h, μία ανά στάδιο.
+ * Τρέχει από τον scheduler μαζί με τον αυτόματο συγχρονισμό (όσο είναι ανοιχτό το τοπικό σύστημα).
+ */
+export async function remindPendingOnline(): Promise<{ checked: number; sent: number }> {
+  let c: OnlineCfg; try { c = cfg(); } catch { return { checked: 0, sent: 0 }; }
+  if (!emailCfg()) return { checked: 0, sent: 0 }; // χωρίς ρυθμισμένο email δεν στέλνουμε
+  const sinceIso = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(); // μόνο πρόσφατες (≤7 ημέρες)
+  const sel = 'id,hold_token,customer_name,customer_email,amount_cents,created_at,reminder1_sent_at,reminder2_sent_at,shows(title,show_date)';
+  let rows: any[] = [];
+  try {
+    rows = await rest(c,
+      `orders?status=eq.pending&customer_email=not.is.null&created_at=gte.${sinceIso}&select=${encodeURIComponent(sel)}&order=created_at.desc&limit=300`,
+      { method: 'GET', headers: headers(c) }) ?? [];
+  } catch { return { checked: 0, sent: 0 }; }
+  const now = Date.now();
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const venueName = (db.prepare('SELECT name FROM venue WHERE id = 1').get() as any)?.name;
+  let sent = 0;
+  for (const o of rows) {
+    const ageMs = now - new Date(o.created_at).getTime();
+    let which: 0 | 1 | 2 = 0;
+    if (!o.reminder1_sent_at && ageMs >= 30 * 60_000) which = 1;
+    else if (o.reminder1_sent_at && !o.reminder2_sent_at && ageMs >= 24 * 3600_000) which = 2;
+    if (!which) continue;
+    const showDate: string | undefined = o.shows?.show_date;
+    if (showDate && /^\d{4}-\d{2}-\d{2}/.test(showDate) && showDate < todayStr) continue; // πέρασε το θέαμα
+    const link = `${REMIND_SITE}/?resume=${o.id}&token=${encodeURIComponent(o.hold_token)}`;
+    const r = await sendEmail(
+      o.customer_email,
+      `Ολοκληρώστε την κράτησή σας — ${o.shows?.title ?? 'Online παραγγελία'}`,
+      pendingReminderHtml({ name: o.customer_name, showTitle: o.shows?.title, showDate, total: (o.amount_cents || 0) / 100, link, venueName }),
+    );
+    if (r.ok) {
+      const field = which === 1 ? 'reminder1_sent_at' : 'reminder2_sent_at';
+      try {
+        await rest(c, `orders?id=eq.${o.id}`, {
+          method: 'PATCH', headers: headers(c, { Prefer: 'return=minimal' }),
+          body: JSON.stringify({ [field]: new Date().toISOString() }),
+        });
+      } catch { /* η σημαία θα ξαναδοκιμαστεί στον επόμενο κύκλο */ }
+      sent++;
+    }
+  }
+  return { checked: rows.length, sent };
+}
+
+/** true αν έχει ρυθμιστεί σύνδεση cloud (URL + service key). */
+export function onlineConfigured(): boolean {
+  const c = db.prepare('SELECT supabase_url, service_key FROM online_config WHERE id = 1').get() as any;
+  return !!(c?.supabase_url && c?.service_key);
+}
+
+/**
+ * Κατεβάζει ΟΛΕΣ τις γραμμές των πινάκων του cloud (Supabase) τοπικά — αντίγραφο δεδομένων ασφαλείας.
+ * Επιστρέφει { generatedAt, counts, tables }. Σελιδοποίηση 1000 γραμμές/αίτημα.
+ */
+export async function pullCloudBackup(): Promise<{ generatedAt: string; counts: Record<string, number>; tables: Record<string, any[]> }> {
+  const c = cfg(); // πετάει αν δεν έχει ρυθμιστεί
+  const TABLES = ['shows', 'ticket_types', 'seats', 'orders', 'order_items', 'tickets', 'seat_holds', 'leads', 'sync_log'];
+  const PAGE = 1000;
+  const tables: Record<string, any[]> = {};
+  const counts: Record<string, number> = {};
+  for (const t of TABLES) {
+    const all: any[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      let chunk: any[] = [];
+      try {
+        chunk = await rest(c, `${t}?select=*&limit=${PAGE}&offset=${offset}`, { method: 'GET', headers: headers(c) }) ?? [];
+      } catch { chunk = []; } // πίνακας που δεν υπάρχει/δεν είναι προσβάσιμος → άδειο
+      all.push(...chunk);
+      if (chunk.length < PAGE) break;
+    }
+    tables[t] = all; counts[t] = all.length;
+  }
+  return { generatedAt: new Date().toISOString(), counts, tables };
 }
 
 interface OnlineCfg { supabase_url: string; service_key: string; enabled: number; sync_minutes_before: number; }

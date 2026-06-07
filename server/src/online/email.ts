@@ -91,6 +91,28 @@ export async function sendEmail(to: string, subject: string, html: string): Prom
   }
 }
 
+/** HTML σώμα email υπενθύμισης για ημιτελή (pending) online παραγγελία — σύνδεσμος ολοκλήρωσης πληρωμής. */
+export function pendingReminderHtml(p: {
+  name?: string; showTitle?: string; showDate?: string; total: number; link: string; venueName?: string;
+}): string {
+  const esc = (s: any) => String(s ?? '').replace(/[<>&]/g, (m) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[m] as string));
+  const dmy = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : (d ?? ''));
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#222">
+    <h2 style="margin:0 0 4px">Η κράτησή σας σας περιμένει</h2>
+    <p style="margin:0 0 16px;color:#666">${esc(p.venueName ?? '')}</p>
+    <p>Αγαπητέ/ή ${esc(p.name || 'πελάτη')},</p>
+    <p>Λάβαμε την παραγγελία σας, αλλά <b>δεν ολοκληρώθηκε η πληρωμή</b>. Μπορείτε να την ολοκληρώσετε με ασφάλεια πατώντας το κουμπί παρακάτω.</p>
+    <table style="border-collapse:collapse;margin:12px 0;font-size:14px">
+      ${p.showTitle ? `<tr><td style="padding:4px 12px 4px 0;color:#666">Θέαμα</td><td style="padding:4px 0"><b>${esc(p.showTitle)}</b></td></tr>` : ''}
+      ${p.showDate ? `<tr><td style="padding:4px 12px 4px 0;color:#666">Ημερομηνία</td><td style="padding:4px 0">${esc(dmy(p.showDate))}</td></tr>` : ''}
+      <tr><td style="padding:4px 12px 4px 0;color:#666">Ποσό</td><td style="padding:4px 0"><b>${p.total.toFixed(2)} €</b></td></tr>
+    </table>
+    <p><a href="${esc(p.link)}" style="display:inline-block;background:#c20e22;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:bold">Ολοκλήρωση πληρωμής</a></p>
+    <p style="color:#888;font-size:12px;word-break:break-all">${esc(p.link)}</p>
+    <p style="color:#888;font-size:12px">Αν οι θέσεις δεν είναι πλέον διαθέσιμες, θα μπορέσετε να επιλέξετε εκ νέου. Αν έχετε ήδη πληρώσει, αγνοήστε αυτό το μήνυμα.</p>
+  </div>`;
+}
+
 /** HTML σώμα email απόδειξης online αγοράς (σύνδεσμος προς το επίσημο PDF του παρόχου). */
 export function receiptEmailHtml(p: {
   name?: string; showTitle?: string; showDate?: string; seats?: string;

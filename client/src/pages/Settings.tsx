@@ -314,7 +314,7 @@ function PasswordSection() {
 
 /* ---------------- Αντίγραφα ασφαλείας ---------------- */
 function BackupSection() {
-  const [list, setList] = useState<{ file: string; size: number; mtime: string }[]>([]);
+  const [list, setList] = useState<{ file: string; size: number; mtime: string; kind?: string }[]>([]);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -331,10 +331,18 @@ function BackupSection() {
   async function createBackup() {
     setBusy(true); setMsg('');
     try {
-      const res = await api.post<{ file: string; base64: string; size: number }>('/api/backup', {});
+      const res = await api.post<{ file: string; base64: string; size: number; cloud?: { file?: string; size?: number; counts?: Record<string, number>; error?: string } | null }>('/api/backup', {});
       const bytes = Uint8Array.from(atob(res.base64), (c) => c.charCodeAt(0));
       saveBlob(res.file, bytes);
-      setMsg(`✓ Δημιουργήθηκε & κατέβηκε: ${res.file} (${(res.size / 1024).toFixed(0)} KB)`);
+      let extra = '';
+      if (res.cloud) {
+        if ('error' in res.cloud && res.cloud.error) extra = ` · ⚠ Cloud backup απέτυχε: ${res.cloud.error}`;
+        else if (res.cloud.file) {
+          const total = Object.values(res.cloud.counts ?? {}).reduce((s, n) => s + Number(n), 0);
+          extra = ` · ☁ Cloud: ${res.cloud.file} (${total} εγγραφές) στον φάκελο backups`;
+        }
+      }
+      setMsg(`✓ Δημιουργήθηκε & κατέβηκε: ${res.file} (${(res.size / 1024).toFixed(0)} KB)${extra}`);
       load();
     } catch (e) { setMsg((e as Error).message); }
     finally { setBusy(false); }
@@ -363,14 +371,14 @@ function BackupSection() {
         </button>
       </div>
       <Msg text={msg} />
-      <p className="text-xs text-gray-500 mb-2">Δημιουργεί συνεπές αντίγραφο της βάσης (ασφαλές ακόμη κι ενώ τρέχει) στον φάκελο <code>backups/</code> του server και το κατεβάζει στον υπολογιστή σου.</p>
+      <p className="text-xs text-gray-500 mb-2">Δημιουργεί συνεπές αντίγραφο της τοπικής βάσης (ασφαλές ακόμη κι ενώ τρέχει) στον φάκελο <code>backups/</code> του server και το κατεβάζει στον υπολογιστή σου. Αν είναι ρυθμισμένο το Cloud, αποθηκεύει στον ίδιο φάκελο και αντίγραφο της cloud βάσης (αρχείο <code>cloud-*.json</code>).</p>
       {list.length > 0 && (
         <table className="w-full border text-sm bg-white">
           <thead className="bg-gray-100"><tr><th className="text-left p-2">Αρχείο</th><th className="text-right p-2">Μέγεθος</th><th className="text-left p-2">Ημ/νία</th><th></th></tr></thead>
           <tbody>
             {list.map((b) => (
               <tr key={b.file} className="border-t">
-                <td className="p-2 font-mono">{b.file}</td>
+                <td className="p-2 font-mono">{b.kind === 'cloud' ? '☁ ' : ''}{b.file}</td>
                 <td className="p-2 text-right">{(b.size / 1024).toFixed(0)} KB</td>
                 <td className="p-2">{b.mtime.replace('T', ' ').slice(0, 16)}</td>
                 <td className="p-2 text-right whitespace-nowrap">

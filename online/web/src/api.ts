@@ -59,6 +59,17 @@ export async function createOrder(payload: {
   return j;
 }
 
+export interface ResumeResult { orderId?: number; checkoutUrl?: string; statusToken?: string; title?: string; alreadyPaid?: boolean; seatsGone?: boolean; error?: string; }
+/** Επανενεργοποίηση ημιτελούς παραγγελίας από το email υπενθύμισης (νέο Viva order). */
+export async function resumeOrder(orderId: number, token: string): Promise<ResumeResult> {
+  const r = await fetch(`${SUPABASE_URL}/functions/v1/resume-order`, {
+    method: "POST", headers: restHeaders, body: JSON.stringify({ orderId, token }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok && !j.alreadyPaid && !j.seatsGone) throw new Error(j.error || "Σφάλμα ανάκτησης παραγγελίας");
+  return j;
+}
+
 export interface OrderStatus { status: string; tickets: { serial: string; url: string }[]; }
 export async function orderStatus(orderId: number, token: string): Promise<OrderStatus> {
   const r = await fetch(

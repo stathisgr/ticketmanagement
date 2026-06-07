@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  listShows, listTicketTypes, seatAvailability, createOrder, orderStatus, getTicket,
+  listShows, listTicketTypes, seatAvailability, createOrder, orderStatus, getTicket, resumeOrder,
   eur, dateGr, type Show, type TicketType, type SeatAvail, type OrderStatus, type TicketView,
 } from "./api";
 import Terms from "./Terms";
@@ -34,6 +34,27 @@ export default function App() {
   const [status, setStatus] = useState<OrderStatus | null>(null);
 
   useEffect(() => {
+    // Σύνδεσμος από email υπενθύμισης: ?resume=<orderId>&token=<hold_token>
+    const sp = new URLSearchParams(window.location.search);
+    const resumeId = Number(sp.get("resume"));
+    const resumeTok = sp.get("token");
+    if (resumeId && resumeTok) {
+      // Καθάρισε το URL ώστε να μην ξανατρέξει σε refresh
+      window.history.replaceState({}, "", window.location.pathname);
+      resumeOrder(resumeId, resumeTok).then((res) => {
+        if (res.alreadyPaid) {
+          localStorage.setItem(PENDING_KEY, JSON.stringify({ orderId: resumeId, token: resumeTok, title: "" }));
+          setPending({ orderId: resumeId, token: resumeTok, title: "" }); setScreen("thanks");
+        } else if (res.seatsGone) {
+          setError(res.error || "Οι θέσεις δεν είναι πλέον διαθέσιμες. Παρακαλούμε επιλέξτε ξανά.");
+          listShows().then(setShows).catch(() => {});
+        } else if (res.checkoutUrl) {
+          localStorage.setItem(PENDING_KEY, JSON.stringify({ orderId: res.orderId, token: res.statusToken, title: res.title ?? "" }));
+          window.location.href = res.checkoutUrl;
+        }
+      }).catch((e) => { setError((e as Error).message); listShows().then(setShows).catch(() => {}); });
+      return;
+    }
     const raw = localStorage.getItem(PENDING_KEY);
     if (raw) { try { setPending(JSON.parse(raw)); setScreen("thanks"); } catch { /* */ } }
     listShows().then(setShows).catch((e) => setError(e.message));
