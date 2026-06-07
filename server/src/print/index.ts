@@ -3,10 +3,35 @@
  * Η πραγματική αποστολή σε hardware (USB/network/system spooler) εξαρτάται από
  * το περιβάλλον του πελάτη και υλοποιείται όταν οριστούν οι εκτυπωτές.
  */
+import QRCode from 'qrcode';
 import { renderEscpos, renderRetailEscpos, vatBreakdown } from './escpos.js';
 import { renderZpl } from './zpl.js';
 import { fillTemplate, fillRetail, type TicketContext, type RetailReceipt, DEFAULT_RETAIL_HEADER, DEFAULT_RETAIL_FOOTER } from './template.js';
-import { stripMarkup } from './markup.js';
+import { stripMarkup, hasQrTag } from './markup.js';
+
+/**
+ * Παράγει QR ως data-URI (PNG) για εκτύπωση από browser (όταν δεν βρεθεί δικτυακός εκτυπωτής).
+ * Στους θερμικούς το QR το ζωγραφίζει ο ίδιος ο εκτυπωτής (ESC/POS)· εδώ φτιάχνουμε εικόνα για τον browser.
+ */
+export async function qrDataUri(text?: string): Promise<string | undefined> {
+  if (!text) return undefined;
+  try { return await QRCode.toDataURL(text, { margin: 1, width: 240, errorCorrectionLevel: 'M' }); }
+  catch { return undefined; }
+}
+
+/**
+ * Προσθέτει στο RenderResult τις εικόνες QR (qrImg = [QR] εισιτηρίου, qrMarkImg = [QR ΜΑΡΚ] myDATA),
+ * ΜΟΝΟ όταν η προεπισκόπηση περιέχει το αντίστοιχο marker και υπάρχει payload. Η κειμενική προεπισκόπηση
+ * (στην οθόνη) παραμένει ως έχει — οι εικόνες χρησιμοποιούνται μόνο κατά την εκτύπωση από browser.
+ */
+export async function attachQrImages<T extends { preview: string }>(
+  r: T, opts: { qr?: string; qrMark?: string }
+): Promise<T & { qrImg?: string; qrMarkImg?: string }> {
+  const out = r as T & { qrImg?: string; qrMarkImg?: string };
+  if (/\[QR\]/.test(r.preview) && opts.qr) out.qrImg = await qrDataUri(opts.qr);
+  if (/\[QR ΜΑΡΚ\]/.test(r.preview) && opts.qrMark) out.qrMarkImg = await qrDataUri(opts.qrMark);
+  return out;
+}
 
 export interface RetailForm { header?: string; footer?: string; showVat?: boolean }
 
@@ -19,6 +44,9 @@ export interface RenderResult {
   /** raw payload: ESC/POS bytes (base64) ή ZPL κείμενο */
   payloadBase64?: string;
   zpl?: string;
+  /** QR ως data-URI για browser print (συμπληρώνεται από attachQrImages). */
+  qrImg?: string;
+  qrMarkImg?: string;
 }
 
 export interface TicketTemplate {
@@ -75,6 +103,7 @@ function retailPreview(rc: RetailReceipt, cols = 48, form: RetailForm = {}): str
   out.push(row('ΣΥΝΟΛΟ:', `${eur(rc.total)} EUR`));
   if (rc.paymentMethod) out.push(`Πληρωμή: ${rc.paymentMethod}`);
   if (rc.mark) out.push(`ΜΑΡΚ: ${rc.mark}`);
+  if (rc.markQr) out.push('[QR ΜΑΡΚ]');
   if (rc.legalNote) out.push(rc.legalNote);
   for (const ln of fillRetail(form.footer ?? DEFAULT_RETAIL_FOOTER, rc).split('\n')) if (ln.trim()) out.push(ln);
   return out.join('\n');
@@ -82,7 +111,11 @@ function retailPreview(rc: RetailReceipt, cols = 48, form: RetailForm = {}): str
 
 /** Preview κειμένου για εμφάνιση στο POS. Αν υπάρχει template, το χρησιμοποιεί. */
 function buildPreview(ctx: TicketContext, tpl: TicketTemplate = {}): string {
+  // Προεπιλεγμένο QR εισιτηρίου (check-in): μπαίνει ΜΟΝΟ όταν θα το τύπωνε και ο θερμικός
+  // (δηλ. δεν υπάρχει ρητό [qr] στη φόρμα, withQr ≠ false και υπάρχει serial) — ίδια λογική με το ESC/POS.
   if (tpl.header || tpl.details || tpl.footer) {
+    const explicitQr = hasQrTag(tpl.header, tpl.details, tpl.footer);
+    const autoQr = !explicitQr && tpl.withQr !== false && !!ctx.serial;
     const legalPlaced = /\{\{\s*legalNote\s*\}\}/.test(`${tpl.header ?? ''}\n${tpl.details ?? ''}\n${tpl.footer ?? ''}`);
     return [
       stripMarkup(fillTemplate(tpl.header ?? '', ctx)),
@@ -90,10 +123,12 @@ function buildPreview(ctx: TicketContext, tpl: TicketTemplate = {}): string {
       stripMarkup(fillTemplate(tpl.details ?? '', ctx)),
       ctx.seat ? `Θέση: ${ctx.seat}` : '',
       '--------------------------------',
+      autoQr ? '[QR]' : '',
       stripMarkup(fillTemplate(tpl.footer ?? '', ctx)),
       !legalPlaced && ctx.legalNote ? ctx.legalNote : '',
     ].filter(Boolean).join('\n');
   }
+  const autoQr = tpl.withQr !== false && !!ctx.serial;
   return [
     ctx.venueName,
     ctx.vatNumber ? `ΑΦΜ: ${ctx.vatNumber}` : '',
@@ -106,6 +141,7 @@ function buildPreview(ctx: TicketContext, tpl: TicketTemplate = {}): string {
     `ΦΠΑ ${ctx.vatRate}%  |  ${ctx.paymentMethod}`,
     ctx.seat ? `Θέση: ${ctx.seat}` : '',
     '--------------------------------',
+    autoQr ? '[QR]' : '',
     `No: ${ctx.serial}`,
     ctx.datetime,
   ]

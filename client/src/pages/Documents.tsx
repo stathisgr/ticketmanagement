@@ -101,23 +101,23 @@ export default function Documents() {
     try {
       if (d.role === 'credit') {
         // Πιστωτικό: εκτύπωση του ίδιου του πιστωτικού (τύπος/σειρά/ΑΑ/ΜΑΡΚ), όχι του εισιτηρίου.
-        const res = await api.post<{ previews: string[] }>('/api/fiscal/documents/credit-print', { docId: d.id });
+        const res = await api.post<{ previews: { preview: string; qrImg?: string; qrMarkImg?: string }[] }>('/api/fiscal/documents/credit-print', { docId: d.id });
         if (res.previews?.length) printTickets(res.previews);
         else setMsg('Δεν βρέθηκαν στοιχεία πιστωτικού.');
         return;
       }
       if (d.is_product) {
         // Προϊόντα: εκτύπωση της ενοποιημένης Απόδειξης Λιανικής (όλα τα είδη μαζί), όχι εισιτηρίων.
-        const res = await api.post<{ previews: string[] }>('/api/fiscal/documents/retail-print', { saleId: d.sale_id });
+        const res = await api.post<{ previews: { preview: string; qrImg?: string; qrMarkImg?: string }[] }>('/api/fiscal/documents/retail-print', { saleId: d.sale_id });
         if (res.previews?.length) printTickets(res.previews);
         return;
       }
       const ids = (d.ticket_ids ?? '').split(',').map((x) => Number(x)).filter(Boolean);
       if (!ids.length) { setMsg('Δεν βρέθηκαν εισιτήρια για επανεκτύπωση.'); return; }
-      const previews: string[] = [];
+      const previews: { preview: string; qrImg?: string; qrMarkImg?: string }[] = [];
       for (const id of ids) {
-        const res = await api.post<{ preview: string; printTicket?: boolean; dispatched?: boolean }>(`/api/tickets/${id}/reprint`, { station: getStation() });
-        if (!res.dispatched && res.printTicket !== false && res.preview) previews.push(res.preview);
+        const res = await api.post<{ preview: string; qrImg?: string; qrMarkImg?: string; printTicket?: boolean; dispatched?: boolean }>(`/api/tickets/${id}/reprint`, { station: getStation() });
+        if (!res.dispatched && res.printTicket !== false && res.preview) previews.push({ preview: res.preview, qrImg: res.qrImg, qrMarkImg: res.qrMarkImg });
       }
       if (previews.length) printTickets(previews);
     } catch (e) { setMsg((e as Error).message); }

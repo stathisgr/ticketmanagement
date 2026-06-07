@@ -70,6 +70,9 @@ export function migrate(): void {
     'ALTER TABLE tickets ADD COLUMN fiscal_doc_type TEXT',
     // Αυτόματος συγχρονισμός online (server-side, χωρίς login): λεπτά μεταξύ εκτελέσεων (0 = ανενεργό).
     'ALTER TABLE online_config ADD COLUMN auto_sync_minutes INTEGER NOT NULL DEFAULT 0',
+    // Ορατότητα αυτόματου συγχρονισμού: πότε έτρεξε τελευταία φορά + σύντομο αποτέλεσμα/σφάλμα.
+    'ALTER TABLE online_config ADD COLUMN last_auto_sync_at TEXT',
+    'ALTER TABLE online_config ADD COLUMN last_auto_sync_info TEXT',
     // Εκδοτήριο: είδος στοιχείου — 0 = Υπηρεσία (εισιτήριο, ΑΠΥ), 1 = Εμπορικό προϊόν (λιανική, ΑΛΠ).
     'ALTER TABLE ticket_types ADD COLUMN kind INTEGER NOT NULL DEFAULT 0',
     // Φόρμες ανά τύπο παραστατικού: 'ticket' (ΑΠΥ/εισιτήριο, id=1) | 'retail' (ΑΛΠ προϊόντων) | μελλοντικά.

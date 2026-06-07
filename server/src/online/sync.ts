@@ -152,6 +152,25 @@ export async function pushPublication(showId: number, showDate: string, salesClo
   if (!show) throw new Error('Δεν βρέθηκε θέαμα');
   const venue = db.prepare('SELECT * FROM venue WHERE id = 1').get() as any;
 
+  // Προστασία από ΔΙΠΛΗ δημοσίευση: άλλη (διαφορετική) εγγραφή θεάματος ίδιας ημέρας & ώρας στην ίδια
+  // αίθουσα (ή ίδιου τίτλου για general events) είναι ήδη online. Η ΕΠΑΝΑδημοσίευση του ΙΔΙΟΥ θεάματος
+  // (ίδιο show_id) επιτρέπεται κανονικά (idempotent upsert) — μπλοκάρεται μόνο το αντίγραφο.
+  const dup = db.prepare(
+    `SELECT p.show_id, s2.title FROM online_publications p
+       JOIN shows s2 ON s2.id = p.show_id
+      WHERE p.show_date = ? AND p.enabled = 1 AND p.cloud_show_id IS NOT NULL
+        AND p.show_id <> ?
+        AND s2.start_time IS ?
+        AND ( (s2.hall_id IS NOT NULL AND s2.hall_id = ?) OR (s2.hall_id IS NULL AND s2.title = ?) )
+      LIMIT 1`
+  ).get(showDate, show.id, show.start_time ?? null, show.hall_id ?? null, show.title) as any;
+  if (dup) {
+    throw new Error(
+      `Υπάρχει ήδη δημοσιευμένο online θέαμα «${dup.title}» για ${showDate}${show.start_time ? ' ' + String(show.start_time).slice(0, 5) : ''} στην ίδια αίθουσα. ` +
+      `Απόσυρέ το πρώτο ή ξαναδημοσίευσε το ίδιο θέαμα — μη δημιουργείς αντίγραφο.`
+    );
+  }
+
   const isGeneral = show.seating_mode === 'general';
   // 1) Show (upsert ανά local_id + ημερομηνία)
   const [cloudShow] = await upsert(c, 'shows', 'local_id,show_date', [{

@@ -20,11 +20,17 @@ export function startAutoSync() {
     if (mins <= 0 || running) return;
     if (Date.now() - lastRunMs < mins * 60_000) return;
     running = true;
+    const stamp = (info: string) => {
+      try { db.prepare('UPDATE online_config SET last_auto_sync_at = ?, last_auto_sync_info = ? WHERE id = 1').run(new Date().toISOString(), info); }
+      catch { /* μη-κρίσιμο */ }
+    };
     try {
       const r = await pull();
       console.log(`[auto-sync] ${new Date().toISOString()} pulled=${r.pulled} importedSales=${r.importedSales}`);
+      stamp(`${r.importedSales} online πωλήσεις, ${r.pulled} θέσεις`);
     } catch (e) {
       console.error('[auto-sync] error:', (e as Error).message);
+      stamp(`Σφάλμα: ${(e as Error).message}`);
     } finally {
       lastRunMs = Date.now();
       running = false;

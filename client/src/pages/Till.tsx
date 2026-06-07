@@ -73,9 +73,9 @@ export default function Till({ role }: { role: 'manager' | 'cashier' | 'checker'
 
   async function reprint(id: number) {
     try {
-      const res = await api.post<{ preview: string; printTicket?: boolean; dispatched?: boolean }>(`/api/tickets/${id}/reprint`, { station: getStation() });
+      const res = await api.post<{ preview: string; qrImg?: string; qrMarkImg?: string; printTicket?: boolean; dispatched?: boolean }>(`/api/tickets/${id}/reprint`, { station: getStation() });
       if (res.dispatched) setError('✓ Επανεκτύπωση στάλθηκε στον εκτυπωτή');
-      else if (res.printTicket !== false) printTickets([res.preview]);
+      else if (res.printTicket !== false) printTickets([res]);
       else setPreview(res.preview);
       loadTickets();
     } catch (e) { setError((e as Error).message); }

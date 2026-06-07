@@ -13,6 +13,9 @@ export default async function onlineRoutes(app: FastifyInstance) {
       auto_sync_minutes: c?.auto_sync_minutes ?? 0,
       enabled: !!c?.enabled,
       has_key: !!c?.service_key, // δεν επιστρέφουμε ποτέ το ίδιο το κλειδί
+      last_auto_sync_at: c?.last_auto_sync_at ?? null,
+      last_auto_sync_info: c?.last_auto_sync_info ?? null,
+      server_time: new Date().toISOString(),
     };
   });
 

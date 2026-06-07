@@ -58,7 +58,8 @@ export default function Shows() {
   useEffect(() => { load(); }, []);
 
   const enabledHalls = halls.filter((h) => h.enabled);
-  const enabledTypes = allTypes.filter((t) => t.enabled);
+  // Στα θεάματα επιτρέπονται ΜΟΝΟ υπηρεσίες (εισιτήρια, kind=0) — όχι εμπορικά προϊόντα (kind=1).
+  const enabledTypes = allTypes.filter((t) => t.enabled && t.kind !== 1);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -98,6 +99,9 @@ export default function Shows() {
     setError('');
     const hall_id = general ? null : Number(draft.hall_id);
     const capacity = general ? (Number(draft.capacity) || 0) : 0;
+    // Ασφάλεια: κράτα μόνο είδη-υπηρεσίες (kind≠1) — ώστε κανένα εμπορικό προϊόν να μην αποθηκευτεί σε θέαμα.
+    const serviceIds = new Set(allTypes.filter((t) => t.kind !== 1).map((t) => t.id));
+    const ticketTypeIds = draft.ticketTypeIds.filter((id) => serviceIds.has(id));
     try {
       if (draft.id) {
         // Το αρχικό θέαμα ενημερώνεται (διατηρείται — ασφαλές για κρατήσεις)
@@ -106,7 +110,7 @@ export default function Shows() {
           hall_id, title: draft.title,
           start_time: s0.start_time, end_time: s0.end_time,
           valid_from: r0.valid_from, valid_to: r0.valid_to,
-          ticketTypeIds: draft.ticketTypeIds,
+          ticketTypeIds,
           poster_url: draft.poster_url, description: draft.description,
         });
         // Τυχόν επιπλέον συνδυασμοί (ώρα × ημερομηνίες) δημιουργούνται ως νέα θεάματα
@@ -115,7 +119,7 @@ export default function Shows() {
             if (i === 0 && j === 0) continue;
             await api.post('/api/shows', {
               hall_id, title: draft.title, seating_mode: draft.seating_mode, capacity,
-              timeSlots: [draft.slots[i]], dateRanges: [draft.ranges[j]], ticketTypeIds: draft.ticketTypeIds,
+              timeSlots: [draft.slots[i]], dateRanges: [draft.ranges[j]], ticketTypeIds,
               poster_url: draft.poster_url, description: draft.description,
             });
           }
@@ -123,7 +127,7 @@ export default function Shows() {
       } else {
         await api.post('/api/shows', {
           hall_id, title: draft.title, seating_mode: draft.seating_mode, capacity,
-          timeSlots: draft.slots, dateRanges: draft.ranges, ticketTypeIds: draft.ticketTypeIds,
+          timeSlots: draft.slots, dateRanges: draft.ranges, ticketTypeIds,
           poster_url: draft.poster_url, description: draft.description,
         });
       }

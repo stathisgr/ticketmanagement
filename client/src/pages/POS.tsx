@@ -5,7 +5,7 @@ import { printTickets } from '../components/printTicket';
 import VivaPay from '../components/VivaPay';
 
 interface CartLine { type: TicketType; qty: number; }
-interface SaleResult { saleId: number; total: number; tickets: { preview: string }[]; receiptFile?: string | null; printTicket?: boolean; fiscal?: { ok: boolean; mark?: string; error?: string } | null; }
+interface SaleResult { saleId: number; total: number; tickets: { preview: string; qrImg?: string; qrMarkImg?: string }[]; receiptFile?: string | null; printTicket?: boolean; fiscal?: { ok: boolean; mark?: string; error?: string } | null; }
 
 const PAYMENTS: { id: PaymentMethod; label: string; color: string }[] = [
   { id: 'cash', label: 'Μετρητά', color: 'bg-green-600' },
@@ -44,7 +44,7 @@ export default function POS() {
     try {
       const res = await api.post<SaleResult>('/api/sales', { items, payment_method: method, customer_id: customer?.id ?? null, station: getStation(), viva_transaction_id: vivaTxId });
       setResult(res);
-      if (res.printTicket !== false) printTickets(res.tickets.map((t) => t.preview));
+      if (res.printTicket !== false) printTickets(res.tickets);
       return true;
     } catch (e) { setError((e as Error).message); return false; }
     finally { setBusy(false); }

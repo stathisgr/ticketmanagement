@@ -46,7 +46,7 @@ function Msg({ text }: { text: string }) {
 }
 
 /* ---------------- Online Ρυθμίσεις (Cloud σύνδεση) ---------------- */
-interface OnlineCfg { supabase_url: string; sync_minutes_before: number; auto_sync_minutes?: number; enabled: boolean; has_key: boolean; }
+interface OnlineCfg { supabase_url: string; sync_minutes_before: number; auto_sync_minutes?: number; enabled: boolean; has_key: boolean; last_auto_sync_at?: string | null; last_auto_sync_info?: string | null; }
 function OnlineTab() {
   const [cfg, setCfg] = useState<OnlineCfg>({ supabase_url: '', sync_minutes_before: 60, auto_sync_minutes: 0, enabled: false, has_key: false });
   const [keyInput, setKeyInput] = useState('');
@@ -216,6 +216,17 @@ function OnlineTab() {
         </label>
       </div>
       <p className="text-xs text-gray-500 mt-1">Ο αυτόματος συγχρονισμός τρέχει στον server (κατέβασμα online πωλήσεων + έκδοση παραστατικών) <b>χωρίς να χρειάζεται συνδεδεμένος χρήστης</b>. Απαιτεί ενεργή σύνδεση cloud.</p>
+      {(cfg.auto_sync_minutes ?? 0) > 0 && !cfg.enabled && (
+        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2 mt-2">⚠ Έχεις ορίσει αυτόματο συγχρονισμό κάθε {cfg.auto_sync_minutes}′ αλλά το <b>«Ενεργό»</b> δεν είναι τσεκαρισμένο — ο συγχρονισμός <b>δεν τρέχει</b>. Τσέκαρε «Ενεργό» και πάτα Αποθήκευση.</p>
+      )}
+      {(cfg.auto_sync_minutes ?? 0) > 0 && cfg.enabled && (
+        <p className="text-sm text-gray-600 mt-2">
+          Τελευταίος αυτόματος συγχρονισμός: <b>{cfg.last_auto_sync_at ? new Date(cfg.last_auto_sync_at).toLocaleString('el-GR') : 'δεν έχει τρέξει ακόμη'}</b>
+          {cfg.last_auto_sync_info ? <> — {cfg.last_auto_sync_info}</> : null}
+          {!cfg.last_auto_sync_at ? <span className="block text-xs text-gray-400">Η πρώτη εκτέλεση γίνεται έως {cfg.auto_sync_minutes}′ μετά την αποθήκευση/επανεκκίνηση του server.</span> : null}
+        </p>
+      )}
+      <div className="mt-2"><button onClick={() => api.get<OnlineCfg>('/api/online/config').then(setCfg).catch(() => {})} className="text-sm text-slate-600 underline">↻ Ανανέωση κατάστασης</button></div>
       <button onClick={save} disabled={busy} className="mt-3 bg-slate-800 text-white px-5 py-2 rounded disabled:opacity-40">Αποθήκευση Cloud</button>
 
       <p className="text-sm text-gray-500 mt-4"><b>Πάροχος ηλεκτρονικής έκδοσης (RapidSign)</b> παραμένει στην καρτέλα «Εκτυπωτές» (δεμένος με τις φορολογικές ρυθμίσεις).</p>

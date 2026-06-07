@@ -21,8 +21,12 @@ const PAYMENTS: { id: PaymentMethod; label: string; color: string }[] = [
   { id: 'card', label: 'Κάρτα', color: 'bg-yellow-500' },
 ];
 
+// Τελευταία επιλεγμένη αίθουσα/ημερομηνία — επιβιώνει όταν φεύγουμε & επιστρέφουμε στη σελίδα
+// (η σελίδα κάνει unmount, οπότε κρατάμε την επιλογή εδώ ώστε να μην πάει ξανά στην 1η αίθουσα).
+let lastSel: { date: string; showId: number } | null = null;
+
 export default function SeatPOS() {
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(lastSel?.date ?? today());
   const [shows, setShows] = useState<Show[]>([]);
   const [show, setShow] = useState<Show | null>(null);
   const [seats, setSeats] = useState<Seat[]>([]);
@@ -50,11 +54,20 @@ export default function SeatPOS() {
     api.get<{ provider: string; hasTerminal: boolean }>('/api/pos/enabled').then(setViva).catch(() => {});
     /* eslint-disable-next-line */
   }, []);
+  // Αυτόματη επιλογή μόλις φορτωθεί η λίστα: επαναφέρει την τελευταία επιλεγμένη αίθουσα (αν είναι
+  // ίδια ημέρα κι υπάρχει ακόμη)· αλλιώς ανοίγει την 1η. Δεν ξανατρέχει όσο υπάρχει επιλεγμένο θέαμα.
+  useEffect(() => {
+    if (show || !shows.length) return;
+    const remembered = lastSel && lastSel.date === date ? shows.find((s) => s.id === lastSel!.showId) : undefined;
+    openShow(remembered ?? shows[0]).catch(() => {});
+    /* eslint-disable-next-line */
+  }, [shows]);
 
-  async function openShow(s: Show) {
+  async function openShow(s: Show, d: string = date) {
     setError(''); setMsg(''); setSelected({}); setQty({});
-    const res = await api.get<{ seats: Seat[]; ticketTypes: ShowTicketType[]; general?: boolean; remaining?: number | null }>(`/api/shows/${s.id}/availability?date=${date}`);
+    const res = await api.get<{ seats: Seat[]; ticketTypes: ShowTicketType[]; general?: boolean; remaining?: number | null }>(`/api/shows/${s.id}/availability?date=${d}`);
     setShow(s); setSeats(res.seats); setTypes(res.ticketTypes);
+    lastSel = { date: d, showId: s.id }; // θυμήσου την επιλογή για επαναφορά μετά από unmount
     setGeneral(!!res.general);
     setGenRemaining(res.general ? (res.remaining ?? null) : null);
     setActiveType(res.ticketTypes[0]?.id ?? null);
@@ -105,10 +118,10 @@ export default function SeatPOS() {
   async function doIssue(items: { seat_id?: number; show_ticket_type_id: number; qty?: number }[], vivaTxId?: string) {
     setBusy(true); setError(''); setMsg('');
     try {
-      const res = await api.post<{ saleId: number; total: number; tickets: { preview: string }[]; printTicket?: boolean; fiscal?: { ok: boolean; mark?: string; error?: string } | null }>('/api/sales', {
+      const res = await api.post<{ saleId: number; total: number; tickets: { preview: string; qrImg?: string; qrMarkImg?: string }[]; printTicket?: boolean; fiscal?: { ok: boolean; mark?: string; error?: string } | null }>('/api/sales', {
         items, payment_method: payment, show_date: date, customer_id: customer?.id ?? null, station: getStation(), viva_transaction_id: vivaTxId,
       });
-      if (res.printTicket !== false) printTickets((res.tickets ?? []).map((t) => t.preview));
+      if (res.printTicket !== false) printTickets(res.tickets ?? []);
       const n = (res.tickets ?? []).length;
       const fx = res.fiscal ? (res.fiscal.ok ? ` · ΜΑΡΚ ${res.fiscal.mark}` : ` · ⚠ Πάροχος: ${res.fiscal.error ?? 'αποτυχία'}`) : '';
       setMsg(`✓ Πώληση #${res.saleId} — ${res.total.toFixed(2)} € (${n} ${general ? 'εισιτήρια' : 'θέσεις'})${fx}`);

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { db, tx, localDate, kindClause } from '../db.js';
 import { authenticate, requireManager, type JwtUser } from '../auth.js';
-import { renderTicket, renderRetail, type PrinterType } from '../print/index.js';
+import { renderTicket, renderRetail, attachQrImages, type PrinterType } from '../print/index.js';
 import type { TicketContext } from '../print/template.js';
 import { exportAsciiReceipt } from '../fiscal/ascii.js';
 import { sendToNetworkPrinter, DRAWER_KICK } from '../print/dispatch.js';
@@ -366,15 +366,18 @@ export default async function salesRoutes(app: FastifyInstance) {
     let tickets;
     if (isProductSale) {
       // Μία ενοποιημένη Απόδειξη Λιανικής (επεξεργάσιμη φόρμα retail· είδη+ΦΠΑ+σύνολα αυτόματα).
-      tickets = [renderRetail(buildRetailReceipt(result.saleId), printerType, retailForm())];
+      const rr = renderRetail(buildRetailReceipt(result.saleId), printerType, retailForm());
+      tickets = [await attachQrImages(rr, { qrMark: fiscalResult?.qrUrl })];
     } else {
-      tickets = renderCtx.map((c) =>
+      const rendered = renderCtx.map((c) =>
         renderTicket({
           ...c, mark: fiscalResult?.mark, markQr: fiscalResult?.qrUrl,
           series: fiscalResult?.series, aa: fiscalResult?.aa, docType: fiscalResult?.docType,
           total: result.total,
           legalNote: issueMode === 'provider' ? '' : c.legalNote,
         }, printerType, tplForRender));
+      tickets = await Promise.all(rendered.map((r, i) =>
+        attachQrImages(r, { qr: renderCtx[i]?.qrPayload ?? renderCtx[i]?.serial, qrMark: fiscalResult?.qrUrl })));
     }
     (result as any).tickets = tickets;
 
@@ -548,9 +551,10 @@ export default async function salesRoutes(app: FastifyInstance) {
     }
     // Αν η πώληση είναι εμπορικά προϊόντα → επανεκτύπωση της ΑΠΟΔΕΙΞΗΣ ΛΙΑΝΙΚΗΣ (ενοποιημένη), όχι εισιτηρίου.
     const saleIdR = (db.prepare('SELECT sale_id FROM sale_items WHERE id = ?').get(t.sale_item_id) as any)?.sale_id;
-    const rendered = (saleIdR && saleIsProduct(saleIdR))
+    const renderedRaw = (saleIdR && saleIsProduct(saleIdR))
       ? renderRetail(buildRetailReceipt(saleIdR), printerType, retailForm())
       : renderTicket(ctx, printerType, tpl2);
+    const rendered = await attachQrImages(renderedRaw, { qr: ctx.qrPayload ?? ctx.serial, qrMark: ctx.markQr });
     db.prepare('UPDATE tickets SET reprinted_count = reprinted_count + 1 WHERE id = ?').run(id);
 
     // Άμεση αποστολή στον δικτυακό εκτυπωτή· αλλιώς ο client τυπώνει από browser.
@@ -577,8 +581,10 @@ export default async function salesRoutes(app: FastifyInstance) {
     const venue = db.prepare('SELECT default_printer_type FROM venue WHERE id = 1').get() as any;
     const targetPrinter = db.prepare('SELECT * FROM printers WHERE is_default = 1').get() as any;
     const printerType: PrinterType = (targetPrinter?.type as PrinterType) ?? (venue?.default_printer_type as PrinterType) ?? 'escpos80';
-    const r = renderRetail(buildRetailReceipt(Number(saleId)), printerType, retailForm());
-    return { previews: [r.preview] };
+    const rc = buildRetailReceipt(Number(saleId));
+    const r = renderRetail(rc, printerType, retailForm());
+    const withQr = await attachQrImages(r, { qrMark: rc.markQr });
+    return { previews: [{ preview: withQr.preview, qrImg: withQr.qrImg, qrMarkImg: withQr.qrMarkImg }] };
   });
 
   // Εκτύπωση ΠΙΣΤΩΤΙΚΟΥ (όχι εισιτηρίου) — δείχνει στοιχεία πιστωτικού: τύπο, σειρά/ΑΑ, ΜΑΡΚ, είδη.
@@ -604,7 +610,7 @@ export default async function salesRoutes(app: FastifyInstance) {
       if (!/\{\{\s*mark\s*\}\}/i.test(footer)) tpl2 = { ...tpl, footer: footer + '\n[c]ΜΑΡΚ: {{mark}}' + (doc.qr_url ? '\n[c][qrmark]' : '') };
     }
     const dtv = (s?: string) => (s ? s.replace('T', ' ').slice(0, 16) : '');
-    const previews = items.map((it: any) => {
+    const previews = await Promise.all(items.map(async (it: any) => {
       const show = it.show_id ? (db.prepare('SELECT title FROM shows WHERE id = ?').get(it.show_id) as any) : null;
       const seat = it.seat_id ? (db.prepare('SELECT display_name FROM seats WHERE id = ?').get(it.seat_id) as any) : null;
       const r = renderTicket({
@@ -616,8 +622,9 @@ export default async function salesRoutes(app: FastifyInstance) {
         docType: 'ΠΙΣΤΩΤΙΚΟ ΣΤΟΙΧ. ΛΙΑΝΙΚΗΣ', series: doc.series, aa: String(doc.aa), mark: doc.mark, markQr: doc.qr_url,
         total: Number(doc.total), qrPayload: doc.mark ?? '',
       }, printerType, tpl2);
-      return (r as any).preview as string;
-    });
+      const withQr = await attachQrImages(r, { qr: doc.mark ?? '', qrMark: doc.qr_url });
+      return { preview: withQr.preview, qrImg: withQr.qrImg, qrMarkImg: withQr.qrMarkImg };
+    }));
     return { previews };
   });
 
