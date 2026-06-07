@@ -1,9 +1,26 @@
 import type { FastifyInstance } from 'fastify';
 import { mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join, basename } from 'node:path';
+import { execFile } from 'node:child_process';
 import { db, DATA_DIR } from '../db.js';
 import { requireManager } from '../auth.js';
 import { onlineConfigured, pullCloudBackup } from '../online/sync.js';
+
+/** Πλήρες backup της cloud βάσης (schema + data + functions + policies) με pg_dump → plain SQL. */
+function pgDumpFull(conn: string, pgDumpPath: string, outFile: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const bin = pgDumpPath && pgDumpPath.trim() ? pgDumpPath.trim() : 'pg_dump';
+    const args = ['--dbname', conn, '--no-owner', '--no-privileges', '-f', outFile];
+    execFile(bin, args, { timeout: 180000, windowsHide: true }, (err, _out, stderr) => {
+      if (err) {
+        const enoent = (err as NodeJS.ErrnoException).code === 'ENOENT';
+        reject(new Error(enoent
+          ? 'Δεν βρέθηκε το pg_dump. Εγκατέστησε PostgreSQL client tools ή όρισε τη διαδρομή του pg_dump στις ρυθμίσεις.'
+          : (String(stderr || err.message)).slice(0, 400)));
+      } else resolve();
+    });
+  });
+}
 
 const BACKUP_DIR = join(DATA_DIR, '..', 'backups');
 
@@ -29,7 +46,7 @@ export default async function backupRoutes(app: FastifyInstance) {
     const size = statSync(full).size;
     const base64 = readFileSync(full).toString('base64');
 
-    // Αν είναι ρυθμισμένο το Cloud → τράβα και αντίγραφο της cloud βάσης στον ίδιο φάκελο (JSON).
+    // Αν είναι ρυθμισμένο το Cloud → τράβα και αντίγραφο της cloud βάσης στον ίδιο φάκελο (JSON δεδομένων).
     let cloud: { file: string; size: number; counts: Record<string, number> } | { error: string } | null = null;
     if (onlineConfigured()) {
       try {
@@ -42,15 +59,30 @@ export default async function backupRoutes(app: FastifyInstance) {
         cloud = { error: (e as Error).message }; // η αποτυχία cloud ΔΕΝ ακυρώνει το τοπικό backup
       }
     }
-    return { ok: true, file, path: full, size, base64, cloud };
+
+    // ΠΛΗΡΕΣ cloud backup (schema+data+functions+policies) με pg_dump — αν έχει οριστεί connection string.
+    let fullDump: { file: string; size: number } | { error: string } | null = null;
+    const ocfg = db.prepare('SELECT pg_conn, pg_dump_path FROM online_config WHERE id = 1').get() as any;
+    if (ocfg?.pg_conn) {
+      const sfile = `cloud-full-${st}.sql`;
+      const sfull = join(BACKUP_DIR, sfile);
+      try {
+        await pgDumpFull(String(ocfg.pg_conn), String(ocfg.pg_dump_path ?? ''), sfull);
+        fullDump = { file: sfile, size: statSync(sfull).size };
+      } catch (e) {
+        try { unlinkSync(sfull); } catch { /* ignore */ }
+        fullDump = { error: (e as Error).message };
+      }
+    }
+    return { ok: true, file, path: full, size, base64, cloud, fullDump };
   });
 
   // Λίστα αντιγράφων στον φάκελο backups/
   app.get('/api/backups', { preHandler: requireManager }, async () => {
     mkdirSync(BACKUP_DIR, { recursive: true });
     return readdirSync(BACKUP_DIR)
-      .filter((f) => f.endsWith('.db') || f.endsWith('.json'))
-      .map((f) => { const s = statSync(join(BACKUP_DIR, f)); return { file: f, size: s.size, mtime: s.mtime.toISOString(), kind: f.endsWith('.json') ? 'cloud' : 'local' }; })
+      .filter((f) => f.endsWith('.db') || f.endsWith('.json') || f.endsWith('.sql'))
+      .map((f) => { const s = statSync(join(BACKUP_DIR, f)); const kind = f.endsWith('.sql') ? 'cloud-full' : f.endsWith('.json') ? 'cloud' : 'local'; return { file: f, size: s.size, mtime: s.mtime.toISOString(), kind }; })
       .sort((a, b) => (a.mtime < b.mtime ? 1 : -1));
   });
 
@@ -71,7 +103,7 @@ export default async function backupRoutes(app: FastifyInstance) {
   // Διαγραφή συγκεκριμένου αντιγράφου (manager). Προστασία από path traversal με basename + έλεγχο κατάληξης .db.
   app.delete('/api/backups/:file', { preHandler: requireManager }, async (req, reply) => {
     const file = basename(String((req.params as any).file));
-    if (!file.endsWith('.db') && !file.endsWith('.json')) return reply.code(400).send({ error: 'Μη έγκυρο αρχείο' });
+    if (!file.endsWith('.db') && !file.endsWith('.json') && !file.endsWith('.sql')) return reply.code(400).send({ error: 'Μη έγκυρο αρχείο' });
     try {
       unlinkSync(join(BACKUP_DIR, file));
       return { ok: true, file };

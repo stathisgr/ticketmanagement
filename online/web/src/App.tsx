@@ -323,6 +323,10 @@ export default function App() {
             <label className="field"><label>Τηλέφωνο</label>
               <input value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} /></label>
 
+            <div style={{ background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", borderRadius: 8, padding: "10px 12px", margin: "10px 0", fontSize: 14, fontWeight: 700, textAlign: "center" }}>
+              Αν αποτύχει η πληρωμή σας, δεν απαιτείται επανάληψη της κράτησης — θα παραλάβετε email με σύνδεσμο για την ολοκλήρωση της αγοράς σας.
+            </div>
+
             <label style={{ display: "flex", gap: 8, alignItems: "flex-start", margin: "10px 0", fontSize: 14 }}>
               <input type="checkbox" checked={acceptedTerms} onChange={(e) => setAcceptedTerms(e.target.checked)} style={{ marginTop: 3 }} />
               <span>Έχω διαβάσει και αποδέχομαι τους{" "}

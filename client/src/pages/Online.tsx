@@ -8,6 +8,7 @@ interface Publication {
   sales_close_at: string | null; enabled: number; pushed_at: string | null;
   last_pull_at: string | null; title: string; sold_online: number;
 }
+interface ImportedSale { saleId: number; email?: string; name?: string; showTitle: string; showDate: string; qty: number; total: number; }
 
 export default function Online() {
   const [cfg, setCfg] = useState<OnlineConfig>({ supabase_url: '', sync_minutes_before: 60, enabled: false, has_key: false });
@@ -21,6 +22,11 @@ export default function Online() {
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [imported, setImported] = useState<ImportedSale[]>([]); // τι κατέβηκε στον τελευταίο συγχρονισμό
+  // Φίλτρα λίστας «Δημοσιευμένα online»
+  const [filterQ, setFilterQ] = useState('');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
 
   function reload() {
     api.get<OnlineConfig>('/api/online/config').then(setCfg).catch((e) => setError(e.message));
@@ -65,8 +71,9 @@ export default function Online() {
   async function pull() {
     setBusy(true); setError(''); setMsg('');
     try {
-      const r = await api.post<{ pulled: number; importedSales: number }>('/api/online/pull', {});
+      const r = await api.post<{ pulled: number; importedSales: number; details?: ImportedSale[] }>('/api/online/pull', {});
       setMsg(`Συγχρονισμός ολοκληρώθηκε — ${r.importedSales} online πωλήσεις εισήχθησαν, ${r.pulled} θέσεις.`);
+      setImported(r.details ?? []);
       reload();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }
@@ -85,6 +92,29 @@ export default function Online() {
       <h1 className="text-2xl font-bold">Online Κρατήσεις</h1>
       {error && <div className="bg-red-100 text-red-700 p-2 rounded">{error}</div>}
       {msg && <div className="bg-green-100 text-green-700 p-2 rounded">{msg}</div>}
+
+      {imported.length > 0 && (
+        <div className="bg-white border rounded-lg p-3">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="font-semibold text-sm">Τι κατέβηκε σε αυτόν τον συγχρονισμό ({imported.length})</h3>
+            <button onClick={() => setImported([])} className="text-xs text-gray-500 hover:underline">Καθαρισμός</button>
+          </div>
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-gray-500 border-b"><th className="py-1">Θέαμα</th><th>Ημ/νία</th><th>Πελάτης</th><th className="text-center">Εισιτ.</th><th className="text-right">Σύνολο</th></tr></thead>
+            <tbody>
+              {imported.map((s) => (
+                <tr key={s.saleId} className="border-b last:border-0">
+                  <td className="py-1">{s.showTitle}</td>
+                  <td>{dmy(s.showDate)}</td>
+                  <td>{s.name || s.email || '—'}</td>
+                  <td className="text-center">{s.qty}</td>
+                  <td className="text-right font-semibold">{s.total.toFixed(2)} €</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {!cfg.enabled && (
         <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded text-sm">
@@ -143,12 +173,36 @@ export default function Online() {
             </button>
           </div>
         </div>
+        {/* Φίλτρα: αναζήτηση τίτλου + εύρος ημερομηνιών */}
+        <div className="flex flex-wrap items-end gap-2 mb-3">
+          <label className="block">
+            <span className="text-xs text-gray-500 block">Αναζήτηση θεάματος</span>
+            <input className="border rounded px-3 py-1.5 text-sm" placeholder="τίτλος…" value={filterQ} onChange={(e) => setFilterQ(e.target.value)} />
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-500 block">Από ημ/νία</span>
+            <span className="block"><DateField value={filterFrom} onChange={setFilterFrom} /></span>
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-500 block">Έως ημ/νία</span>
+            <span className="block"><DateField value={filterTo} onChange={setFilterTo} /></span>
+          </label>
+          {(filterQ || filterFrom || filterTo) && (
+            <button onClick={() => { setFilterQ(''); setFilterFrom(''); setFilterTo(''); }} className="text-sm text-gray-500 hover:underline pb-1.5">Καθαρισμός φίλτρων</button>
+          )}
+        </div>
+        {(() => {
+          const rows = pubs.filter((p) => p.enabled)
+            .filter((p) => !filterQ || p.title.toLowerCase().includes(filterQ.toLowerCase()))
+            .filter((p) => !filterFrom || p.show_date >= filterFrom)
+            .filter((p) => !filterTo || p.show_date <= filterTo);
+          return (
         <table className="w-full text-sm">
           <thead><tr className="text-left text-gray-500 border-b">
             <th className="py-1">Θέαμα</th><th>Ημ/νία</th><th>Κλείσιμο</th><th>Πούλησε online</th><th>Τελ. sync</th><th></th>
           </tr></thead>
           <tbody>
-            {pubs.filter((p) => p.enabled).map((p) => (
+            {rows.map((p) => (
               <tr key={p.id} className="border-b">
                 <td className="py-1.5">{p.title}</td>
                 <td>{dmy(p.show_date)}</td>
@@ -158,9 +212,11 @@ export default function Online() {
                 <td className="text-right"><button onClick={() => unpublish(p.id)} className="text-red-600 hover:underline">Απόσυρση</button></td>
               </tr>
             ))}
-            {pubs.filter((p) => p.enabled).length === 0 && <tr><td colSpan={6} className="text-gray-400 py-3">Κανένα θέαμα δεν είναι δημοσιευμένο online.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={6} className="text-gray-400 py-3">{pubs.filter((p) => p.enabled).length === 0 ? 'Κανένα θέαμα δεν είναι δημοσιευμένο online.' : 'Κανένα αποτέλεσμα με αυτά τα φίλτρα.'}</td></tr>}
           </tbody>
         </table>
+          );
+        })()}
       </div>
     </div>
   );

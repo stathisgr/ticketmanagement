@@ -47,7 +47,7 @@ export async function fullCheck(): Promise<{ publications: number; importedSales
   const webId = (db.prepare("SELECT id FROM users WHERE username = 'web'").get() as any)?.id ?? null;
   let importedSales = 0;
   for (const pub of pubs) {
-    try { importedSales += await importShowOrders(c, pub, webId); }
+    try { importedSales += (await importShowOrders(c, pub, webId)).count; }
     catch { /* συνεχίζουμε με τις υπόλοιπες δημοσιεύσεις */ }
   }
   return { publications: pubs.length, importedSales };
@@ -340,7 +340,7 @@ export async function unpublish(pubId: number): Promise<{ importedSales: number 
   if (pub.cloud_show_id) {
     const webId = (db.prepare("SELECT id FROM users WHERE username = 'web'").get() as any)?.id ?? null;
     // 1) ασφάλεια: φέρε τυχόν online πωλήσεις τοπικά πριν σβήσουμε.
-    importedSales = await importShowOrders(c, pub, webId);
+    importedSales = (await importShowOrders(c, pub, webId)).count;
     // 2) διαγραφή cloud: πρώτα orders (cascade order_items+tickets), μετά το show (cascade seats/types/holds).
     await rest(c, `orders?show_id=eq.${pub.cloud_show_id}`, { method: 'DELETE', headers: headers(c, { Prefer: 'return=minimal' }) });
     await rest(c, `shows?id=eq.${pub.cloud_show_id}`, { method: 'DELETE', headers: headers(c, { Prefer: 'return=minimal' }) });
@@ -350,8 +350,11 @@ export async function unpublish(pubId: number): Promise<{ importedSales: number 
   return { importedSales };
 }
 
+/** Στοιχεία μιας online πώλησης που κατέβηκε τοπικά (για ενημέρωση χρήστη/έλεγχο). */
+export interface ImportedSale { saleId: number; email?: string; name?: string; showTitle: string; showDate: string; qty: number; total: number; }
+
 /** Εισαγωγή πληρωμένων online παραγγελιών ενός θεάματος → τοπικές πωλήσεις + εισιτήρια (idempotent). */
-async function importShowOrders(c: OnlineCfg, pub: any, webId: number | null): Promise<number> {
+async function importShowOrders(c: OnlineCfg, pub: any, webId: number | null): Promise<{ count: number; sales: ImportedSale[] }> {
   const cs = await rest(c, `seats?show_id=eq.${pub.cloud_show_id}&select=id,local_seat_id`, { method: 'GET', headers: headers(c) }) as any[];
   const seatMap = new Map<number, number>(); for (const s of cs) if (s.local_seat_id != null) seatMap.set(s.id, s.local_seat_id);
   const ct = await rest(c, `ticket_types?show_id=eq.${pub.cloud_show_id}&select=id,local_id`, { method: 'GET', headers: headers(c) }) as any[];
@@ -361,8 +364,9 @@ async function importShowOrders(c: OnlineCfg, pub: any, webId: number | null): P
     { method: 'GET', headers: headers(c) }) as any[];
   const byOrder = new Map<number, any[]>();
   for (const r of tks) { if (!byOrder.has(r.order_id)) byOrder.set(r.order_id, []); byOrder.get(r.order_id)!.push(r); }
+  const showTitle = (db.prepare('SELECT title FROM shows WHERE id = ?').get(pub.show_id) as any)?.title ?? '';
   let imported = 0;
-  const created: { saleId: number; email?: string; name?: string }[] = [];
+  const created: ImportedSale[] = [];
   for (const [, items] of byOrder) {
     if (db.prepare('SELECT 1 FROM tickets WHERE serial = ?').get(items[0].serial)) continue; // idempotent
     const ord = items[0].orders ?? {};
@@ -396,7 +400,10 @@ async function importShowOrders(c: OnlineCfg, pub: any, webId: number | null): P
       } catch { /* θέση ήδη πουλημένη τοπικά ή διπλό serial — αγνόησε */ }
     }
     db.prepare('UPDATE sales SET vat_total = ? WHERE id = ?').run(+vatTotal.toFixed(2), saleId);
-    created.push({ saleId, email: ord.customer_email ?? undefined, name: ord.customer_name ?? undefined });
+    created.push({
+      saleId, email: ord.customer_email ?? undefined, name: ord.customer_name ?? undefined,
+      showTitle, showDate: pub.show_date, qty: items.length, total: +total.toFixed(2),
+    });
     imported++;
   }
 
@@ -406,17 +413,17 @@ async function importShowOrders(c: OnlineCfg, pub: any, webId: number | null): P
     try { await issueAndEmailSale(s.saleId); }
     catch { /* η αποτυχία έκδοσης/email δεν μπλοκάρει τον συγχρονισμό */ }
   }
-  return imported;
+  return { count: imported, sales: created };
 }
 
 /**
  * Κατέβασμα online-πουλημένων θέσεων → τοπικός πίνακας online_sold_seats,
  * ώστε ο ταμίας να τις βλέπει πιασμένες. Επιστρέφει πλήθος νέων.
  */
-export async function pull(): Promise<{ pulled: number; importedSales: number; perShow: Record<number, number> }> {
+export async function pull(): Promise<{ pulled: number; importedSales: number; perShow: Record<number, number>; details: ImportedSale[] }> {
   const c = cfg();
   const pubs = db.prepare('SELECT * FROM online_publications WHERE enabled = 1 AND cloud_show_id IS NOT NULL').all() as any[];
-  let pulled = 0; let importedSales = 0; const perShow: Record<number, number> = {};
+  let pulled = 0; let importedSales = 0; const perShow: Record<number, number> = {}; const details: ImportedSale[] = [];
   const webId = (db.prepare("SELECT id FROM users WHERE username = 'web'").get() as any)?.id ?? null;
 
   for (const pub of pubs) {
@@ -474,9 +481,10 @@ export async function pull(): Promise<{ pulled: number; importedSales: number; p
     perShow[pub.show_id] = n; pulled += n;
 
     // (γ) ΕΙΣΑΓΩΓΗ πληρωμένων online παραγγελιών → τοπικές πωλήσεις + εισιτήρια (πωλητής «web»).
-    importedSales += await importShowOrders(c, pub, webId);
+    const imp = await importShowOrders(c, pub, webId);
+    importedSales += imp.count; details.push(...imp.sales);
 
     db.prepare("UPDATE online_publications SET last_pull_at = datetime('now','localtime') WHERE id = ?").run(pub.id);
   }
-  return { pulled, importedSales, perShow };
+  return { pulled, importedSales, perShow, details };
 }

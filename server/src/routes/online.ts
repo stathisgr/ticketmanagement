@@ -13,6 +13,8 @@ export default async function onlineRoutes(app: FastifyInstance) {
       auto_sync_minutes: c?.auto_sync_minutes ?? 0,
       enabled: !!c?.enabled,
       has_key: !!c?.service_key, // δεν επιστρέφουμε ποτέ το ίδιο το κλειδί
+      has_pg_conn: !!c?.pg_conn, // ούτε το connection string (περιέχει password)
+      pg_dump_path: c?.pg_dump_path ?? '',
       last_auto_sync_at: c?.last_auto_sync_at ?? null,
       last_auto_sync_info: c?.last_auto_sync_info ?? null,
       server_time: new Date().toISOString(),
@@ -25,16 +27,21 @@ export default async function onlineRoutes(app: FastifyInstance) {
     if (typeof b.service_key === 'string' && b.service_key.length > 0) {
       db.prepare('UPDATE online_config SET service_key = ? WHERE id = 1').run(b.service_key);
     }
+    // Connection string (περιέχει password) ΜΟΝΟ αν δόθηκε νέο.
+    if (typeof b.pg_conn === 'string' && b.pg_conn.length > 0) {
+      db.prepare('UPDATE online_config SET pg_conn = ? WHERE id = 1').run(b.pg_conn.trim());
+    }
     db.prepare(
-      'UPDATE online_config SET supabase_url = ?, sync_minutes_before = ?, auto_sync_minutes = ?, enabled = ? WHERE id = 1'
+      'UPDATE online_config SET supabase_url = ?, sync_minutes_before = ?, auto_sync_minutes = ?, enabled = ?, pg_dump_path = ? WHERE id = 1'
     ).run(
       b.supabase_url ?? '',
       Math.max(0, Number(b.sync_minutes_before) || 60),
       Math.max(0, Number(b.auto_sync_minutes) || 0),
       b.enabled ? 1 : 0,
+      typeof b.pg_dump_path === 'string' ? b.pg_dump_path.trim() : '',
     );
     const c = db.prepare('SELECT * FROM online_config WHERE id = 1').get() as any;
-    return { supabase_url: c.supabase_url, sync_minutes_before: c.sync_minutes_before, auto_sync_minutes: c.auto_sync_minutes, enabled: !!c.enabled, has_key: !!c.service_key };
+    return { supabase_url: c.supabase_url, sync_minutes_before: c.sync_minutes_before, auto_sync_minutes: c.auto_sync_minutes, enabled: !!c.enabled, has_key: !!c.service_key, has_pg_conn: !!c.pg_conn, pg_dump_path: c.pg_dump_path ?? '' };
   });
 
   // --- Δημοσιεύσεις ---

@@ -73,6 +73,9 @@ export function migrate(): void {
     // Ορατότητα αυτόματου συγχρονισμού: πότε έτρεξε τελευταία φορά + σύντομο αποτέλεσμα/σφάλμα.
     'ALTER TABLE online_config ADD COLUMN last_auto_sync_at TEXT',
     'ALTER TABLE online_config ADD COLUMN last_auto_sync_info TEXT',
+    // Πλήρες backup cloud (pg_dump): connection string της Postgres + προαιρετικό path του pg_dump.
+    'ALTER TABLE online_config ADD COLUMN pg_conn TEXT',
+    'ALTER TABLE online_config ADD COLUMN pg_dump_path TEXT',
     // Εκδοτήριο: είδος στοιχείου — 0 = Υπηρεσία (εισιτήριο, ΑΠΥ), 1 = Εμπορικό προϊόν (λιανική, ΑΛΠ).
     'ALTER TABLE ticket_types ADD COLUMN kind INTEGER NOT NULL DEFAULT 0',
     // Φόρμες ανά τύπο παραστατικού: 'ticket' (ΑΠΥ/εισιτήριο, id=1) | 'retail' (ΑΛΠ προϊόντων) | μελλοντικά.

@@ -46,10 +46,11 @@ function Msg({ text }: { text: string }) {
 }
 
 /* ---------------- Online Ρυθμίσεις (Cloud σύνδεση) ---------------- */
-interface OnlineCfg { supabase_url: string; sync_minutes_before: number; auto_sync_minutes?: number; enabled: boolean; has_key: boolean; last_auto_sync_at?: string | null; last_auto_sync_info?: string | null; }
+interface OnlineCfg { supabase_url: string; sync_minutes_before: number; auto_sync_minutes?: number; enabled: boolean; has_key: boolean; has_pg_conn?: boolean; pg_dump_path?: string; last_auto_sync_at?: string | null; last_auto_sync_info?: string | null; }
 function OnlineTab() {
   const [cfg, setCfg] = useState<OnlineCfg>({ supabase_url: '', sync_minutes_before: 60, auto_sync_minutes: 0, enabled: false, has_key: false });
   const [keyInput, setKeyInput] = useState('');
+  const [pgConnInput, setPgConnInput] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [posProvider, setPosProvider] = useState<'none' | 'viva'>('none');
@@ -69,10 +70,11 @@ function OnlineTab() {
   async function save() {
     setBusy(true); setMsg('');
     try {
-      const body: any = { supabase_url: cfg.supabase_url, sync_minutes_before: cfg.sync_minutes_before, auto_sync_minutes: cfg.auto_sync_minutes ?? 0, enabled: cfg.enabled };
+      const body: any = { supabase_url: cfg.supabase_url, sync_minutes_before: cfg.sync_minutes_before, auto_sync_minutes: cfg.auto_sync_minutes ?? 0, enabled: cfg.enabled, pg_dump_path: cfg.pg_dump_path ?? '' };
       if (keyInput) body.service_key = keyInput;
+      if (pgConnInput) body.pg_conn = pgConnInput;
       const r = await api.put<OnlineCfg>('/api/online/config', body);
-      setCfg(r); setKeyInput(''); setMsg('✓ Αποθηκεύτηκε');
+      setCfg(r); setKeyInput(''); setPgConnInput(''); setMsg('✓ Αποθηκεύτηκε');
     } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   }
 
@@ -204,6 +206,13 @@ function OnlineTab() {
       <L label={`Κλειδί υπηρεσίας (service key)${cfg.has_key ? ' — αποθηκευμένο, άφησέ το κενό για να μην αλλάξει' : ''}`}>
         <input type="password" className="inp" placeholder={cfg.has_key ? '•••••••• αποθηκευμένο' : 'service key'} value={keyInput} onChange={(e) => setKeyInput(e.target.value)} />
       </L>
+      <L label={`Connection string βάσης — για ΠΛΗΡΕΣ backup (pg_dump)${cfg.has_pg_conn ? ' — αποθηκευμένο, άφησέ το κενό για να μην αλλάξει' : ''}`}>
+        <input type="password" className="inp" placeholder={cfg.has_pg_conn ? '•••••••• αποθηκευμένο' : 'postgresql://postgres:•••@db.<ref>.supabase.co:5432/postgres'} value={pgConnInput} onChange={(e) => setPgConnInput(e.target.value)} />
+      </L>
+      <L label="Διαδρομή pg_dump (προαιρετικό — αν δεν είναι στο PATH)">
+        <input className="inp" placeholder={'π.χ. C\\:\\Program Files\\PostgreSQL\\16\\bin\\pg_dump.exe'} value={cfg.pg_dump_path ?? ''} onChange={(e) => setCfg({ ...cfg, pg_dump_path: e.target.value })} />
+      </L>
+      <p className="text-xs text-gray-500 mb-1">Το <b>πλήρες</b> backup (schema + δεδομένα + functions + policies) παράγεται από το κουμπί «Αντίγραφα ασφαλείας» ως αρχείο <code>cloud-full-*.sql</code>, εφόσον δοθεί connection string και υπάρχει το <code>pg_dump</code>. Το connection string το βρίσκεις στο Supabase → Project Settings → Database → Connection string.</p>
       <div className="grid grid-cols-3 gap-3 mt-2">
         <L label="Λεπτά πριν το θέαμα (κλείσιμο online)">
           <input type="number" min={0} className="inp" value={cfg.sync_minutes_before} onChange={(e) => setCfg({ ...cfg, sync_minutes_before: Number(e.target.value) })} />
@@ -331,16 +340,20 @@ function BackupSection() {
   async function createBackup() {
     setBusy(true); setMsg('');
     try {
-      const res = await api.post<{ file: string; base64: string; size: number; cloud?: { file?: string; size?: number; counts?: Record<string, number>; error?: string } | null }>('/api/backup', {});
+      const res = await api.post<{ file: string; base64: string; size: number; cloud?: { file?: string; size?: number; counts?: Record<string, number>; error?: string } | null; fullDump?: { file?: string; size?: number; error?: string } | null }>('/api/backup', {});
       const bytes = Uint8Array.from(atob(res.base64), (c) => c.charCodeAt(0));
       saveBlob(res.file, bytes);
       let extra = '';
       if (res.cloud) {
-        if ('error' in res.cloud && res.cloud.error) extra = ` · ⚠ Cloud backup απέτυχε: ${res.cloud.error}`;
+        if ('error' in res.cloud && res.cloud.error) extra += ` · ⚠ Cloud (δεδομένα) απέτυχε: ${res.cloud.error}`;
         else if (res.cloud.file) {
           const total = Object.values(res.cloud.counts ?? {}).reduce((s, n) => s + Number(n), 0);
-          extra = ` · ☁ Cloud: ${res.cloud.file} (${total} εγγραφές) στον φάκελο backups`;
+          extra += ` · ☁ Cloud δεδομένα: ${res.cloud.file} (${total} εγγρ.)`;
         }
+      }
+      if (res.fullDump) {
+        if ('error' in res.fullDump && res.fullDump.error) extra += ` · ⚠ Πλήρες (pg_dump) απέτυχε: ${res.fullDump.error}`;
+        else if (res.fullDump.file) extra += ` · 🗄 Πλήρες: ${res.fullDump.file} (${((res.fullDump.size ?? 0) / 1024).toFixed(0)} KB)`;
       }
       setMsg(`✓ Δημιουργήθηκε & κατέβηκε: ${res.file} (${(res.size / 1024).toFixed(0)} KB)${extra}`);
       load();
