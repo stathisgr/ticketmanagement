@@ -272,3 +272,13 @@ a.usecase:hover { transform: translateY(-3px); box-shadow: 0 18px 40px rgba(12,4
 .form-thanks .ft-ico { width: 64px; height: 64px; border-radius: 50%; background: #137a3a; color: #fff; font-size: 34px; line-height: 64px; margin: 0 auto 14px; }
 .form-thanks h3 { margin: 0 0 8px; color: var(--navy); font-size: 1.4rem; }
 .form-thanks p { margin: 0 auto; color: var(--muted); max-width: 44ch; font-size: 1.02rem; }
+
+/* Queue Management landing helpers */
+.muted { color: var(--muted); }
+.ticks { list-style: none; padding: 0; margin: .5rem 0 0; }
+.ticks li { position: relative; padding: 4px 0 4px 26px; }
+.ticks li::before { content: "\2713"; position: absolute; left: 0; top: 4px; color: #137a3a; font-weight: 700; }
+.usecols { display: flex; gap: 1.5rem; flex-wrap: wrap; }
+.usecols ul { flex: 1 1 220px; margin: .25rem 0 0; padding-left: 1.1rem; }
+.usecols li { padding: 2px 0; }
+.split .shot { width: 100%; height: auto; }

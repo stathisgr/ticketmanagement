@@ -10,7 +10,9 @@
 
 - **Ένας server-PC**: τρέχει το Node app (Fastify) που σερβίρει και τον client και κρατά τη βάση (`data/ticket.db`). Πόρτα **3001**, ακούει στο LAN.
 - **Σταθμοί Ταμείου/Ελεγκτή**: απλοί **browsers** που δείχνουν `http://<server-ip>:3001/`. Δεν τρέχουν Node.
-- **Απαίτηση:** Node.js **≥ 22.5** (η βάση χρησιμοποιεί `node:sqlite`). Μηδέν native deps → τα `node_modules` μεταφέρονται ως έχουν (offline install).
+- **Απαίτηση:** Node.js **≥ 22.5** (η βάση χρησιμοποιεί `node:sqlite`).
+- **Runtime μοντέλο (ελάχιστο/ταχύ):** ο server τρέχει **μεταγλωττισμένος** — `node server/dist/server.js`. Το build γίνεται με **esbuild** (`npm run build -w server`, transpile-only, όπως το tsx αλλά ahead-of-time). Στον πελάτη εγκαθίστανται **μόνο runtime deps** (`npm install --omit=dev`): fastify + qrcode + bcryptjs + iconv-lite (καθαρό JS) — **χωρίς** tsx/esbuild/typescript/vite/react. Έτσι τα `node_modules` πέφτουν από ~123 MB σε ~λίγα MB.
+- **⚠ Build/packaging γίνεται σε Windows** (το μηχάνημα ανάπτυξης), όχι σε mounted/FUSE περιβάλλον (μπορεί να αλλοιώσει αρχεία).
 
 ```
 deploy/
@@ -18,6 +20,11 @@ deploy/
   client/   install-station.bat · uninstall-station.bat
   factory/  new-customer.ps1 · factory-seed.mjs · new-customer.bat
 ```
+
+### Ποιος στήνει τι (κρίσιμο)
+
+- **Άδειο PC πελάτη (server):** ΜΟΝΟ το `Server.zip` → `install-service.bat`. Κατεβάζει/βάζει μόνο του **Node 22**, στήνει το service, και η **τοπική βάση (SQLite) φτιάχνεται αυτόματα** (seed). Δεν χρειάζεται pg_dump/psql/Supabase CLI εκεί.
+- **Cloud (Supabase):** στήνεται **ΜΙΑ φορά** από εσένα (όχι στο PC του πελάτη) — βλ. [cloud-bootstrap.md](./cloud-bootstrap.md): `schema.sql` στο SQL Editor → `deploy-functions.bat` → secrets. Το `pg_dump` το τρέχεις **μία φορά** σε δικό σου PC για να φτιάξεις το `schema.sql` (μετά είναι στατικό αρχείο).
 
 ## 2. Server (Windows Service)
 
@@ -54,15 +61,17 @@ powershell -ExecutionPolicy Bypass -File new-customer.ps1 ^
   -Logo "C:\logos\xyz.webp" -Out "C:\builds"
 ```
 
-Παράγει `AlphaTicketManager-Theatro-XYZ-YYYYMMDD.zip` που περιέχει:
-- Καθαρό αντίγραφο της εφαρμογής (χωρίς `.git`, `online`, `ticketmanager.gr`, χωρίς δεδομένα/κινήσεις).
-- **Αλλαγμένο λογότυπο** (asset swap: αντικαθιστά τα αρχεία `*logo*` στο `client\dist\assets`).
+Το factory (στο Windows) κάνει: **build client (vite) + server (esbuild)** → αντιγράφει **μόνο compiled** (όχι `src`/`node_modules`/site) → **`npm install --omit=dev`** (minimal runtime) → **seed** άδειας βάσης + στοιχεία επιχείρησης → **logo swap** (`logo_install.svg`) → ZIP.
+
+Το `AlphaTicketManager-<πελάτης>-<ημερομηνία>.zip` περιέχει:
+- `server/dist` (μεταγλωττισμένο) + **minimal** `node_modules` (μόνο runtime, ~λίγα MB).
+- `client/dist` (χτισμένο), αλλαγμένο `logo_install.svg`.
 - **Άδεια βάση** με βασικά είδη + στοιχεία επιχείρησης (όνομα/ΑΦΜ/πόλη…), **καμία πώληση**.
-- `INSTALL-README.txt` με τα βήματα για τον τεχνικό.
+- `INSTALL-README.txt`.
 
-Ο πελάτης: ξεζιπάρει → `deploy\server\install-service.bat` → σταθμοί με `install-station.bat`.
+Ο πελάτης: ξεζιπάρει → `deploy\server\install-service.bat` (ελέγχει Node, στήνει το service, τρέχει `node dist\server.js` — **χωρίς** npm install/build, όλα bundled) → σταθμοί με `install-station.bat`. Ελάχιστο & ταχύ.
 
-> Πριν τρέξεις το factory, βεβαιώσου ότι υπάρχει χτισμένος client: `cd client && npm run build`. Πρόσθεσε `-NoModules` αν δεν θες bundled `node_modules` (τότε ο πελάτης χρειάζεται internet για `npm install`).
+> Το factory τρέχει σε **Windows** (Node 22 + internet για το `npm install --omit=dev`). Δίνει το πιο μικρό/καθαρό πακέτο — **μόνο dist**, χωρίς πηγαίο κώδικα.
 
 ## 5. Branding (λογότυπο πελάτη)
 

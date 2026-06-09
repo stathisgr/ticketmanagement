@@ -49,6 +49,11 @@
           <form id="lead-form" class="form-card" data-ok="Ευχαριστούμε!" data-okmsg="Λάβαμε το μήνυμά σας. Σύντομα ένας συνεργάτης μας θα επικοινωνήσει μαζί σας." data-err="Σφάλμα: ">
             <div id="form-msg" class="form-msg" role="status" aria-live="polite"></div>
             <div class="form-row">
+              <div class="field"><label for="f-interest">Ενδιαφέρομαι για</label>
+                <select id="f-interest" name="interest"><option value="">—</option><option>Έκδοση Εισιτηρίων</option><option>Σειρά Προτεραιότητας (Queue)</option><option>Και τα δύο</option></select>
+              </div>
+            </div>
+            <div class="form-row">
               <div class="field"><label for="f-name">Ονοματεπώνυμο</label><input id="f-name" name="name" autocomplete="name" /></div>
               <div class="field"><label for="f-company">Εταιρεία / Φορέας</label><input id="f-company" name="company" autocomplete="organization" /></div>
             </div>

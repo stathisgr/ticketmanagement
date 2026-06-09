@@ -25,8 +25,11 @@
 1. **Create project** στο supabase.com → διάλεξε περιοχή (π.χ. eu-central-1) + όρισε **Database password** (κράτησέ το).
 2. **API keys:** Project Settings → API → `Project URL`, `anon key` (δημόσιο), `service_role key` (μυστικό).
 3. **Connection string:** κουμπί **Connect** → URI → **Session pooler** (χρήστης `postgres.<ref>`).
-4. **Deploy Edge Functions** (από repo): `supabase functions deploy create-order resume-order order-status viva-webhook lead ticket wallet-google` (δημόσιες με `--no-verify-jwt`).
-5. **Function Secrets** (§5 πίνακας).
+4. **Edge Functions (Supabase CLI):**
+   - `npm i -g supabase` → `supabase login` (access token).
+   - Από τον φάκελο `online/` (εκεί ζει το `supabase/`): `supabase link --project-ref <ref>`.
+   - `supabase functions deploy` → ανεβάζει **ΟΛΕΣ** (create-order, resume-order, order-status, viva-webhook, lead, ticket, wallet-google) + το κοινό `_shared/`. Το `online/supabase/config.toml` ορίζει `verify_jwt=false` στις δημόσιες (παλιό CLI → ανά function).
+5. **Function Secrets:** `supabase secrets set VIVA_... MS_... MAIL_FROM=... LEAD_NOTIFY_EMAIL=... PUBLIC_SITE_URL=...` (πλήρης λίστα §5).
 6. **Viva webhook:** δήλωσε στο Viva το URL `https://<ref>.supabase.co/functions/v1/viva-webhook` (το GET επιστρέφει verification key).
 
 | Τιμή | Τι είναι | Πού το βρίσκω | Πού το βάζω |

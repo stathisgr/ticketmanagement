@@ -1,0 +1,28 @@
+# Supabase project config — χρησιμοποιείται από το Supabase CLI.
+# Άλλαξε το project_id με το ref του ΝΕΟΥ project (από το dashboard URL) ή τρέξε `supabase link`.
+project_id = "your-project-ref"
+
+# Οι ΔΗΜΟΣΙΕΣ functions καλούνται από browser/webhook χωρίς user JWT, οπότε verify_jwt = false
+# (έχουν δικό τους έλεγχο: capability token / webhook key / anon key). Έτσι ένα `supabase functions deploy`
+# τις ανεβάζει όλες με τα σωστά flags.
+
+[functions.create-order]
+verify_jwt = false
+
+[functions.resume-order]
+verify_jwt = false
+
+[functions.order-status]
+verify_jwt = false
+
+[functions.viva-webhook]
+verify_jwt = false
+
+[functions.lead]
+verify_jwt = false
+
+[functions.ticket]
+verify_jwt = false
+
+[functions.wallet-google]
+verify_jwt = false

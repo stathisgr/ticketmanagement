@@ -52,6 +52,11 @@
           <form id="lead-form" class="form-card" data-ok="Thank you!" data-okmsg="We received your message. One of our team will contact you shortly." data-err="Error: ">
             <div id="form-msg" class="form-msg" role="status" aria-live="polite"></div>
             <div class="form-row">
+              <div class="field"><label for="f-interest">I'm interested in</label>
+                <select id="f-interest" name="interest"><option value="">—</option><option>Ticketing</option><option>Queue Management</option><option>Both</option></select>
+              </div>
+            </div>
+            <div class="form-row">
               <div class="field"><label for="f-name">Full name</label><input id="f-name" name="name" autocomplete="name" /></div>
               <div class="field"><label for="f-company">Company / Organisation</label><input id="f-company" name="company" autocomplete="organization" /></div>
             </div>

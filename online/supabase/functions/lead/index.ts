@@ -29,10 +29,10 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
   try {
     const b = await req.json();
-    if (clean(b.website)) return json({ ok: true }); // honeypot
+    if (clean(b.hp_token) || clean(b.website)) return json({ ok: true }); // honeypot (hp_token = τρέχον πεδίο φόρμας)
     const name = clean(b.name, 200), email = clean(b.email, 200);
     if (!name && !email) return json({ error: "Συμπληρώστε όνομα ή email" }, 400);
-    const row = { name, company: clean(b.company, 200), email, phone: clean(b.phone, 60), venue_type: clean(b.venue_type, 80), venues: clean(b.venues, 60), numbered_seats: clean(b.numbered_seats, 20), online_needed: clean(b.online_needed, 20), existing_system: clean(b.existing_system, 200), volume: clean(b.volume, 60), message: clean(b.message, 4000), lang: clean(b.lang, 5), source: clean(b.source, 120) || "ticketmanager.gr", user_agent: clean(req.headers.get("user-agent") ?? "", 300) };
+    const row = { name, company: clean(b.company, 200), email, phone: clean(b.phone, 60), interest: clean(b.interest, 80), venue_type: clean(b.venue_type, 80), venues: clean(b.venues, 60), numbered_seats: clean(b.numbered_seats, 20), online_needed: clean(b.online_needed, 20), existing_system: clean(b.existing_system, 200), volume: clean(b.volume, 60), message: clean(b.message, 4000), lang: clean(b.lang, 5), source: clean(b.source, 120) || "ticketmanager.gr", user_agent: clean(req.headers.get("user-agent") ?? "", 300) };
     const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { error } = await db.from("leads").insert(row);
     if (error) return json({ error: error.message }, 500);

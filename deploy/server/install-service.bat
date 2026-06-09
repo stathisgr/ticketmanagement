@@ -59,15 +59,25 @@ echo [OK] Node: %NODE_EXE%
 set "PATH=%ProgramFiles%\nodejs;%PATH%"
 echo.
 
-REM === [2/5] Dependencies (bundled node_modules expected; install if missing) ===
-echo [2/5] Checking dependencies...
-if exist "%APP_ROOT%\node_modules" goto DEPS_OK
-echo [..] node_modules missing -> running npm install (needs internet)
+REM === [2/5] Compiled build + dependencies ===
+echo [2/5] Build ^& dependencies...
+if exist "%APP_ROOT%\server\dist\server.js" goto HAVE_BUILD
+echo [..] No compiled build -> building from source (needs internet, one-off)...
 pushd "%APP_ROOT%"
 call npm install --no-audit --no-fund
+if not exist "%APP_ROOT%\client\dist\index.html" call npm run build
+call npm run build --workspace server
+call npm prune --omit=dev
 popd
-:DEPS_OK
-echo [OK] Dependencies ready.
+goto BUILD_OK
+:HAVE_BUILD
+if exist "%APP_ROOT%\node_modules" goto BUILD_OK
+echo [..] Installing runtime dependencies (npm install --omit=dev)...
+pushd "%APP_ROOT%"
+call npm install --omit=dev --no-audit --no-fund
+popd
+:BUILD_OK
+echo [OK] Build ^& dependencies ready (runtime: node dist\server.js).
 echo.
 
 REM === [3/5] First-run database seed (basic data, no movements) ===
@@ -94,13 +104,13 @@ REM === [5/5] Service via Task Scheduler ===
 echo [5/5] Installing service (Task Scheduler, SYSTEM, onstart)...
 schtasks /delete /tn %TASK_NAME% /f >nul 2>nul
 
-REM auto-restart wrapper
+REM auto-restart wrapper (runs the compiled server directly - no tsx/npm at runtime)
 > "%~dp0_service-wrapper.bat" (
   echo @echo off
   echo set "PATH=%ProgramFiles%\nodejs;%%PATH%%"
   echo cd /d "%APP_ROOT%"
   echo :LOOP
-  echo call npm start ^>^> "%APP_ROOT%\data\server.log" 2^>^&1
+  echo node "%APP_ROOT%\server\dist\server.js" ^>^> "%APP_ROOT%\data\server.log" 2^>^&1
   echo timeout /t 5 /nobreak ^>nul
   echo goto LOOP
 )
@@ -123,18 +133,4 @@ echo   DONE - Server service installed and started.
 echo ============================================================
 echo   URL (this PC):     http://localhost:%PORT%/
 echo   URL (other PCs):   http://THIS-PC-IP:%PORT%/
-echo   Tools: manage-service.bat / uninstall-service.bat / start.bat
-echo   Log:   %APP_ROOT%\data\server.log
-echo.
-pause
-exit /b 0
-
-:NODE_DL_FAIL
-echo [ERROR] Node download failed. Place %NODE_MSI_NAME% next to this file and re-run, or install Node 22 manually.
-pause & exit /b 1
-:NODE_INSTALL_FAIL
-echo [ERROR] Node install failed. Reboot and re-run, or install Node 22 manually.
-pause & exit /b 1
-:TASK_FAIL
-echo [ERROR] Could not create scheduled task. Run as Administrator.
-pause & exit /b 1
+echo   Tools: manage-service.bat / un

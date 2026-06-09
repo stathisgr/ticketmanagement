@@ -384,4 +384,36 @@
     <xhtml:link rel="alternate" hreflang="bg" href="https://ticketmanager.gr/bg/kontakti.html"/>
     <xhtml:link rel="alternate" hreflang="x-default" href="https://ticketmanager.gr/Epikoinonia.html"/>
   </url>
+  <url>
+    <loc>https://ticketmanager.gr/Sira_Proteraiotitas.html</loc>
+    <xhtml:link rel="alternate" hreflang="el" href="https://ticketmanager.gr/Sira_Proteraiotitas.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://ticketmanager.gr/en/queue-management.html"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://ticketmanager.gr/tr/sira-yonetim-sistemi.html"/>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://ticketmanager.gr/bg/sistema-za-upravlenie-na-opashki.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ticketmanager.gr/Sira_Proteraiotitas.html"/>
+  </url>
+  <url>
+    <loc>https://ticketmanager.gr/en/queue-management.html</loc>
+    <xhtml:link rel="alternate" hreflang="el" href="https://ticketmanager.gr/Sira_Proteraiotitas.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://ticketmanager.gr/en/queue-management.html"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://ticketmanager.gr/tr/sira-yonetim-sistemi.html"/>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://ticketmanager.gr/bg/sistema-za-upravlenie-na-opashki.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ticketmanager.gr/Sira_Proteraiotitas.html"/>
+  </url>
+  <url>
+    <loc>https://ticketmanager.gr/tr/sira-yonetim-sistemi.html</loc>
+    <xhtml:link rel="alternate" hreflang="el" href="https://ticketmanager.gr/Sira_Proteraiotitas.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://ticketmanager.gr/en/queue-management.html"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://ticketmanager.gr/tr/sira-yonetim-sistemi.html"/>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://ticketmanager.gr/bg/sistema-za-upravlenie-na-opashki.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ticketmanager.gr/Sira_Proteraiotitas.html"/>
+  </url>
+  <url>
+    <loc>https://ticketmanager.gr/bg/sistema-za-upravlenie-na-opashki.html</loc>
+    <xhtml:link rel="alternate" hreflang="el" href="https://ticketmanager.gr/Sira_Proteraiotitas.html"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://ticketmanager.gr/en/queue-management.html"/>
+    <xhtml:link rel="alternate" hreflang="tr" href="https://ticketmanager.gr/tr/sira-yonetim-sistemi.html"/>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://ticketmanager.gr/bg/sistema-za-upravlenie-na-opashki.html"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://ticketmanager.gr/Sira_Proteraiotitas.html"/>
+  </url>
 </urlset>

@@ -39,10 +39,18 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path $stage | Out-Null
 New-Item -ItemType Directory -Path $Out -Force | Out-Null
 
-# --- 1) Καθαρό αντίγραφο (robocopy, με εξαιρέσεις) ---
-Info "Copying app (excluding git/online/site/data/factory)..."
-$xd = @(".git","online","ticketmanager.gr","data",".vscode","$SourceRoot\deploy\factory")
-if ($NoModules) { $xd += "node_modules" }
+# --- 0) Build client (vite) + server (esbuild) στο SourceRoot (έχει πλήρη node_modules) ---
+Info "Building client (vite) + server (esbuild)..."
+Push-Location $SourceRoot
+try {
+  & npm run build;                     if ($LASTEXITCODE -ne 0) { throw "client build failed" }
+  & npm run build --workspace server;  if ($LASTEXITCODE -ne 0) { throw "server build failed" }
+} finally { Pop-Location }
+if (-not (Test-Path "$SourceRoot\server\dist\server.js")) { throw "server\dist\server.js δεν παρήχθη" }
+
+# --- 1) Καθαρό αντίγραφο: ΜΟΝΟ compiled + assets (όχι src/node_modules/site/data) ---
+Info "Copying compiled app (excluding src/node_modules/site/data)..."
+$xd = @(".git","online","ticketmanager.gr","data",".vscode","node_modules","src","public","scripts","$SourceRoot\deploy\factory")
 $xdArgs = @(); foreach($d in $xd){ $xdArgs += "/XD"; $xdArgs += $d }
 # robocopy επιστρέφει 0-7 ως επιτυχία
 & robocopy $SourceRoot $stage /MIR /NFL /NDL /NJH /NJS /NP @xdArgs /XF "*.log" | Out-Null
@@ -60,12 +68,15 @@ if ($Logo) {
   } else { Write-Warning "Δεν βρέθηκε client\dist\assets — έχεις χτίσει τον client; (cd client && npm run build)" }
 }
 
-# --- 3) Άδεια βάση: seed (βασικά είδη) + στοιχεία επιχείρησης, χωρίς κινήσεις ---
-Info "Seeding fresh database (basic items, no movements)..."
+# --- 3) Minimal runtime deps + άδεια βάση (seed) + στοιχεία επιχείρησης, χωρίς κινήσεις ---
 Push-Location $stage
 try {
-  & npm run seed
-  if ($LASTEXITCODE -ne 0) { throw "npm run seed failed" }
+  Info "Installing runtime dependencies only (npm install --omit=dev)..."
+  & npm install --omit=dev --no-audit --no-fund
+  if ($LASTEXITCODE -ne 0) { throw "npm install (prod) failed" }
+  Info "Seeding fresh database (basic items, no movements)..."
+  & node "server\dist\seed.js"
+  if ($LASTEXITCODE -ne 0) { throw "seed failed" }
   $params = @{ name=$Customer; vat=$Vat; tax=$Tax; address=$Address; city=$City; postal=$Postal; phone=$Phone; email=$Email } | ConvertTo-Json
   $pf = Join-Path $stage "data\_params.json"
   Set-Content -Path $pf -Value $params -Encoding UTF8
