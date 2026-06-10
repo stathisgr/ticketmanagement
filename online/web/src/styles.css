@@ -114,14 +114,12 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 .tk-stub { background: var(--brand); height: 8px; }
 
 
-/* Demo footer — matches the marketing site */
-.demo-footer { background: #0c2c54; color: #cdddf0; margin-top: 28px; padding: 18px 0; }
-.demo-footer .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.demo-footer .wrap > span { flex: 1 1 auto; min-width: 0; }
-.demo-footer .wrap > a { flex: 0 0 auto; }            /* το λογότυπο Alpha δεν συρρικνώνεται/κρύβεται */
+/* Demo footer — μπλε λωρίδα με κείμενο + τηλέφωνο, κεντραρισμένο */
+.demo-footer { background: #0c2c54; color: #cdddf0; margin-top: 28px; padding: 16px 0; }
+.demo-footer .wrap { text-align: center; }
 .demo-footer a { color: #fff; }
-.demo-foot-logo { display: block; height: 40px; width: 109px; max-width: 60vw; object-fit: contain; background: #fff; padding: 6px 9px; border-radius: 8px; }
-/* Mobile: στοίβαξη κάθετα ώστε το λογότυπο Alpha να φαίνεται πάντα (δεν σπρώχνεται εκτός οθόνης). */
-@media (max-width: 640px) {
-  .demo-footer .wrap { flex-direction: column; align-items: flex-start; gap: 10px; }
-}
+.demo-foot-text { margin: 0 0 4px; }
+.demo-foot-tel { margin: 0; }
+/* Κάτω από την μπλε λωρίδα: λευκή ζώνη με κεντραρισμένο λογότυπο Alpha (τέλος σελίδας) */
+.demo-foot-mark { background: #fff; text-align: center; padding: 16px 12px; }
+.demo-foot-mark img { height: 72px; width: auto; max-width: 80%; display: inline-block; }

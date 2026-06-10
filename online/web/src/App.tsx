@@ -371,9 +371,12 @@ export default function App() {
       </div>
       {showTerms && <Terms venue={show?.venue_name} onClose={() => setShowTerms(false)} />}
       <footer className="demo-footer"><div className="wrap">
-        <span>Μια υπηρεσία της <a href="https://axd.gr" target="_blank" rel="noreferrer">Alpha PLIROFORIKI S.A.</a> · <a href="/">ticketmanager.gr</a></span>
-        <a href="https://axd.gr" target="_blank" rel="noreferrer" aria-label="Alpha PLIROFORIKI S.A."><img className="demo-foot-logo" src="/demo/assets/logo-alpha.webp" alt="Alpha PLIROFORIKI S.A." width="120" height="44" /></a>
+        <p className="demo-foot-text">Μια υπηρεσία της <a href="https://axd.gr" target="_blank" rel="noreferrer">Alpha ΠΛΗΡΟΦΟΡΙΚΗ ΑΕ</a> · <a href="/">ticketmanager.gr</a></p>
+        <p className="demo-foot-tel">Τηλ. <a href="tel:+302551038444">2551038444</a></p>
       </div></footer>
+      <div className="demo-foot-mark">
+        <a href="https://axd.gr" target="_blank" rel="noreferrer" aria-label="Alpha ΠΛΗΡΟΦΟΡΙΚΗ ΑΕ"><img src="/demo/assets/logo_alpha_small.webp" alt="Alpha ΠΛΗΡΟΦΟΡΙΚΗ ΑΕ" height="72" /></a>
+      </div>
     </>
   );
 }
